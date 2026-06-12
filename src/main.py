@@ -46,6 +46,12 @@ mission_logger = AutomatedMissionDataLogger(log_directory="logs", file_prefix="u
 mission_logger.start_logging_services()
 
 def bootstrap_system():
+    from network_layer.bilge_audit_logger import BilgeEnvironmentalAuditLogger
+
+    # Bootstrap asynchronous environmental compliance log tracking
+    bilge_logger = BilgeEnvironmentalAuditLogger(log_directory="logs", file_prefix="marpol_bilge_audit")
+    bilge_logger.start_logger_services()
+
     print("=" * 80)
     print("        UNIVAC REPLACEMENT COGNITIVE MATRIX BRIDGE ARCHITECTURE MASTER CORE")
     print("=" * 80)
