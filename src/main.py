@@ -75,13 +75,20 @@ def bootstrap_system():
     # Initialize the high-speed independent weapon bus parser
     weapon_parser = WeaponSerialBusParser()
     weapon_listener = ThreadedSerialPortListener(router, port_name=weapon_port, baud_rate=9600)
-    
+    # Inside the serial_port_listener.py _execute_read_loop right after a successful readline():
+    if self.port_name.endswith('USB0'):  # Compass port
+    watchdog.poke_watchdog('NMEA_SERIAL_IN')
+    elif self.port_name.endswith('USB2'): # Weapon Ring bus port
+    watchdog.poke_watchdog('WEAPON_BUS_IN')
     compass_listener.start_listening()
     sonar_listener.start_listening()
     weapon_listener.start_listening()
+    # Inside the tcp_command_listener.py validate_and_update_targets routine upon entry:
+    watchdog.poke_watchdog('TCP_COMMAND_IN')
 
     print("\n[BOOT] System initialization complete. Entering real-time control matrix loop.")
     print("-" * 80)
+
 
     # --- MAIN HARD-REAL-TIME TIMING STACK CONFIGURATION ---
     loop_rate_hz = 50.0  # Runs calculations exactly at 50Hz frequency cycles (20ms)
