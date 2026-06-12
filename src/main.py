@@ -109,7 +109,9 @@ def bootstrap_system():
             
             # 6. Dispatch wire-level serial and UDP control datagram sentences down to hardware
             router.route_calculated_loop_outputs(actuator_commands)
-            
+            # Append the exact engine and sensor snapshot state to the RAM caching queues
+            mission_logger.log_snapshot(actuator_commands, live_telemetry)
+
             # 7. Enforce strict deterministic clock bounding limits
             execution_time = time.time() - start_cycle_time
             sleep_window = dt - execution_time
@@ -118,6 +120,7 @@ def bootstrap_system():
                 
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] Intercepted manual shutdown request. Suspending communication pipes...")
+        mission_logger.stop_logging_services() # Flush queue and lock file on disk array
         compass_listener.stop_listening()
         sonar_listener.stop_listening()
         weapon_listener.stop_listening()
