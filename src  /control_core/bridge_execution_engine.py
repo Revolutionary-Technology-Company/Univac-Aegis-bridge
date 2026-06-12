@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # File Name: bridge_execution_engine.py
-# Location: / (Root Directory of Univac-Aegis-Bridge)
+# Location: /src/control_core/
+# Subsystem: Unified Coordinated Propulsion & Steering Control Matrix
 
 import math
 import numpy as np
@@ -14,296 +15,281 @@ try:
     from src.hydrodynamics.wave_matrix_processor import WaveParameterMatrix
     from src.hydrodynamics.bank_suction_lookup import BankSuctionLookupTable
     from src.control_core.univac_features_library import NAVMOD_Subsystem
-    from hydro_coordinated_predictor import HydroCoordinatedPredictor
+    from src.control_core.hydro_coordinated_predictor import HydroCoordinatedPredictor
+    from src.control_core.asymmetric_trim_subroutine import AsymmetricRudderTrimSubroutine
+    from src.config.weapon_balance_matrix import NavalWeaponsBalanceMatrix
 except ImportError as e:
     print(f"[WARNING] Sub-module import failed. Ensure /src/ directory is accessible. Error: {e}")
 
 class UnivacReplacementBridgeEngine:
-from control_core.asymmetric_trim_subroutine import AsymmetricRudderTrimSubroutine
+    """
+    MASTER EXECUTION ENGINE: UNIVAC REPLACEMENT BRIDGE
+    Synthesizes Aegis/Sea Machines target requests with physical hull limits.
+    Incorporates all 75 features, including propeller diameter shear protection,
+    rudder-length roll coupling, AR wave forecasting, and weapon cross-coupling.
+    """
+    def __init__(self, vessel_profile: Dict[str, float]):
+        # 1. Exact Physical Vessel Dimensions (Crucial for Hydrodynamic Gating)
+        self.D = float(vessel_profile.get('diameter', 3.4))
+        self.J_prop = float(vessel_profile.get('inertia_prop', 500.0))
+        self.draft = float(vessel_profile.get('draft', 6.5))
+        self.max_torque = float(vessel_profile.get('max_torque', 90000.0))
+        self.max_rudder_deg = float(vessel_profile.get('max_rudder_deg', 35.0))
+        self.L_hull = float(vessel_profile.get('hull_length', 45.0))
+        self.B_beam = float(vessel_profile.get('beam', 9.5))
+        self.rudder_arm_z = float(vessel_profile.get('rudder_arm_z', 2.8))
 
-# Inside your UnivacReplacementBridgeEngine __init__:
-self.trim_subroutine = AsymmetricRudderTrimSubroutine(vessel_profile)
+        # Environmental Constants
+        self.rho = 1025.0     # Seawater density (kg/m^3)
+        self.g = 9.81         # Gravity (m/s^2)
+        self.K_bend = 0.015   # Propeller asymmetric lift factor
+
+        # 2. Instantiate UNIVAC Math Subsystems
+        try:
+            self.wave_matrix = WaveParameterMatrix(diameter=self.D, draft=self.draft)
+            self.bank_suction = BankSuctionLookupTable(draft=self.draft, length=self.L_hull)
+            self.hydro_predictor = HydroCoordinatedPredictor(
+                diameter=self.D, inertia=self.J_prop, draft=self.draft, 
+                max_torque=self.max_torque, max_rudder_deg=self.max_rudder_deg, kt=0.85
+            )
+            self.nav_mod = NAVMOD_Subsystem()
+            self.trim_subroutine = AsymmetricRudderTrimSubroutine(vessel_profile)
+            self.weapons_matrix = NavalWeaponsBalanceMatrix()
+            self.subsystems_online = True
+        except NameError:
+            self.subsystems_online = False
+            print("[CRITICAL] Running in Safe-Mode. Advanced subsystems offline.")
+
+        # --- FEATURE 40: AUTOREGRESSIVE SEAKEEPING BUFFER ---
+        self.history_depth = 5
+        self.elevation_history = np.zeros(self.history_depth)
+        self.ar_weights = np.array([0.842, -0.441, 0.198, -0.048, 0.009])
+
+        # --- FEATURE 43: ADAPTIVE STEERING NOTCH FILTER REGISTERS ---
+        self.notch_x1 = 0.0
+        self.notch_x2 = 0.0
+        self.notch_y1 = 0.0
+        self.notch_y2 = 0.0
+
+        # --- INTERNAL CONTROLLER STATE REGISTERS ---
+        self.integral_speed_error = 0.0
+        self.current_accel = 0.0
+        self.max_jerk = 5.0       # Max rate of change of acceleration (RPM/s^3)
+        self.max_accel_lim = 50.0  # Max structural acceleration limit (RPM/s^2)
+        self.current_ramp_rpm = 0.0
+        self.current_rpm_state = 0.0
+
+    # ==============================================================================
+    # INTERNAL FEATURE ARRAYS: DETERMINISTIC MATH
+    # ==============================================================================
+    def _execute_s_curve_profile(self, target_rpm: float, current_rpm: float, dt: float) -> float:
+        """S-Curve profile generator to smoothly ramp target RPM without steps."""
+        if self.current_ramp_rpm == 0.0:
+            self.current_ramp_rpm = current_rpm
+            
+        error = target_rpm - self.current_ramp_rpm
+        if abs(error) < 0.1:
+            self.current_accel = 0.0
+            return target_rpm
+            
+        jerk_direction = 1.0 if error > 0 else -1.0
+        self.current_accel += jerk_direction * self.max_jerk * dt
+        self.current_accel = max(-self.max_accel_lim, min(self.max_accel_lim, self.current_accel))
+        
+        self.current_ramp_rpm += self.current_accel * dt
+        return max(-200.0, min(1200.0, self.current_ramp_rpm))
+
+    def _calculate_wave_ventilation(self, raw_bow_meters: float) -> float:
+        """Features 40 & 41: Forecasts wave elevations and propeller ventilation loss."""
+        self.elevation_history = np.roll(self.elevation_history, -1)
+        self.elevation_history[-1] = raw_bow_meters
+        pred_elevation = float(np.dot(self.ar_weights, self.elevation_history))
+        
+        nominal_shaft_depth = 3.5
+        submergence = nominal_shaft_depth + pred_elevation
+        if submergence >= self.D:
+            return 1.0
+        elif submergence <= 0.0:
+            return 0.05
+        else:
+            return math.sin((math.pi / 2.0) * (submergence / self.D)) ** 2
+
+    def _execute_feature_43_notch_filter(self, rudder_cmd_deg: float, dt: float) -> float:
+        """FEATURE 43: Second-Order Bilinear Notch Filter to suppress wave noise."""
+        w_wave = 0.82   # Target wave oscillation band (rad/s)
+        zeta_1 = 0.05   # Narrow attenuation notch width
+        zeta_2 = 0.70   # Broad tracking passband damping
+        
+        tan_coef = math.tan((w_wave * dt) / 2.0)
+        
+        b0 = 1.0 + (2.0 * zeta_1 * tan_coef) + (tan_coef ** 2)
+        b1 = 2.0 * (tan_coef ** 2) - 2.0
+        b2 = 1.0 - (2.0 * zeta_1 * tan_coef) + (tan_coef ** 2)
+        
+        a0 = 1.0 + (2.0 * zeta_2 * tan_coef) + (tan_coef ** 2)
+        a1 = 2.0 * (tan_coef ** 2) - 2.0
+        a2 = 1.0 - (2.0 * zeta_2 * tan_coef) + (tan_coef ** 2)
+        
+        filtered_rudder = (b0/a0)*rudder_cmd_deg + (b1/a0)*self.notch_x1 + (b2/a0)*self.notch_x2 - (a1/a0)*self.notch_y1 - (a2/a0)*self.notch_y2
+        
+        self.notch_x2 = self.notch_x1
+        self.notch_x1 = rudder_cmd_deg
+        self.notch_y2 = self.notch_y1
+        self.notch_y1 = filtered_rudder
+        return filtered_rudder
+
+    def _enforce_propeller_shear_protection(self, target_yaw_rate: float, current_omega: float) -> float:
+        """Propeller Diameter (D^5) Gyroscopic limits to prevent shaft snapping."""
+        projected_bending_moment = self.K_bend * self.rho * (current_omega**2) * (self.D**5) * abs(target_yaw_rate)
+        safety_factor = 0.85
+        max_allowable_moment = self.max_torque * safety_factor
+        
+        if projected_bending_moment > max_allowable_moment and current_omega > 0.1:
+            safe_yaw_rate = max_allowable_moment / (self.K_bend * self.rho * (current_omega**2) * (self.D**5))
+            return math.copysign(safe_yaw_rate, target_yaw_rate)
+        return target_yaw_rate
+
+    def _calculate_rudder_roll_moment(self, actual_rudder_deg: float, speed_ms: float) -> float:
+        """Uses Rudder Arm Z-Axis length to predict hull lean induced by steering."""
+        rudder_area = 4.5 
+        lift_coeff = 0.1 * actual_rudder_deg
+        lateral_force = 0.5 * self.rho * (speed_ms**2) * rudder_area * lift_coeff
+        return lateral_force * self.rudder_arm_z
+
+    # ==============================================================================
+    # MASTER EXECUTION LOOP (Runs at 10Hz - 50Hz)
+    # ==============================================================================
     def execute_bridge_loop(self, targets: dict, telemetry: dict, dt: float) -> dict:
         """
         Executes a single hard-real-time multi-variable tracking cycle.
-        Processes geodetics, shallow boundaries, wave predictions, asymmetric trim, 
-        and structural safety caps.
+        Coordinates wave prediction, shallow depth capping, structural limits, and RRS.
         """
-        # Convert mechanical shaft speed to analytical radians/second
-        current_omega = (telemetry['rpm'] * 2.0 * math.pi) / 60.0
+        current_rpm = telemetry.get('rpm', self.current_rpm_state)
+        current_omega = (current_rpm * 2.0 * math.pi) / 60.0
+        speed_ms = telemetry.get('speed_ms', 0.0)
         
-        # 1. Execute Subsystem Models
-        nav_res = self._execute_navmod_geodetics(targets, telemetry)
-        hydro_res = self._execute_hydromod_boundaries(telemetry)
-        wave_res = self._execute_wavemod_forecaster(telemetry)
-        mimo_res = self._execute_mimomod_interlocks(targets, telemetry, current_omega)
+        # --- WEAPON CROSS-COUPLING ---
+        if self.subsystems_online and 'gun_azimuth_deg' in telemetry:
+            weapon_impact = self.weapons_matrix.evaluate_vessel_cross_coupling_impact(
+                ship_class='DDG_ARLEIGH_BURKE',
+                weapon_azimuth_deg=telemetry['gun_azimuth_deg'],
+                weapon_elevation_deg=telemetry.get('gun_elevation_deg', 0.0),
+                az_rate=telemetry.get('gun_azimuth_rate_rads', 0.0),
+                el_rate=telemetry.get('gun_elevation_rate_rads', 0.0)
+            )
+            # Apply weapon's induced list angle to pre-compensate RRS matrices
+            telemetry['roll_angle_rad'] = telemetry.get('roll_angle_rad', 0.0) + math.radians(weapon_impact.get('induced_roll_list_angle_deg', 0.0))
+
+        # --- 1. SHALLOW WATER PROTECTION INTERLOCKS (Feature 16/20) ---
+        clearance = max(0.1, telemetry.get('depth', 50.0) - self.draft)
+        squat = 0.7 * ((speed_ms / 10.0) ** 2) * (1.0 + 0.1 * (self.draft / clearance))
+        dynamic_draft = self.draft + squat
         
-        # New Integration: Calculate asymmetric canal bank trim if available
-        # This prevents the hull from sucking into channel walls
-        if hasattr(self, 'trim_subroutine'):
+        fr_depth = speed_ms / math.sqrt(self.g * max(0.5, telemetry.get('depth', 50.0)))
+
+        # Speed saturation constraint adjustment
+        if fr_depth > 0.85:
+            safe_target_rpm = min(targets.get('rpm', 0.0), 250.0)
+            slowdown_active = True
+        else:
+            safe_target_rpm = targets.get('rpm', 0.0)
+            slowdown_active = False
+
+        # --- 2. ASYMMETRIC CANAL BANK STABILIZATION ---
+        delta_trim_deg = 0.0
+        bank_suction_force = 0.0
+        if self.subsystems_online:
             trim_res = self.trim_subroutine.calculate_asymmetric_channel_trim(telemetry)
-            delta_trim_deg = trim_res['asymmetric_trim_required_deg']
-        else:
-            delta_trim_deg = 0.0
-        
-        # 2. Coordinated Propulsion Control Law (With Shallow-Water Cap Interlocks)
-        if hydro_res['froude_depth_number'] > 0.85:
-            active_target_rpm = min(targets['rpm'], 250.0)  # Safe shallow crawl speed cap
-            override_flag = True
-        else:
-            active_target_rpm = targets['rpm']
-            override_flag = False
+            delta_trim_deg = trim_res.get('asymmetric_trim_required_deg', 0.0)
             
-        target_omega = (active_target_rpm * 2.0 * math.pi) / 60.0
-        speed_error = target_omega - current_omega
+            bank_data = self.bank_suction.evaluate_bank_forces(telemetry, dt)
+            bank_suction_force = bank_data.get('feature_26_suction_force_n', 0.0)
+
+        # --- 3. WAVE AND VENTILATION PLANT ENGINE ---
+        # Run AR Predictor
+        beta_v = self._calculate_wave_ventilation(telemetry.get('bow_sensor_meters', 0.0))
+        if self.subsystems_online:
+            wave_data = self.wave_matrix.process_wave_cycle(safe_target_rpm, targets.get('target_yaw_rate', 0.0), telemetry, dt)
+            # Take the most conservative ventilation constraint
+            beta_v = min(beta_v, wave_data.get('internal_ventilation_index', 1.0))
+
+        # --- 4. CLOSED-LOOP PROPULSION EXECUTION ---
+        profiled_target_rpm = self._execute_s_curve_profile(safe_target_rpm, current_rpm, dt)
+        target_omega = (profiled_target_rpm * 2.0 * math.pi) / 60.0
         
-        # PI Velocity Loop Execution
+        speed_error = target_omega - current_omega
         self.integral_speed_error += speed_error * dt
+        
         base_torque = (220.0 * speed_error) + (10.0 * self.integral_speed_error)
         
-        # Feature 42: Active Wave Torque Attenuation Profile
-        beta_v = wave_res['ventilation_factor_beta']
+        # Feature 42: Proactively attenuate torque if wave ventilation occurs at the stern
         coordinated_torque = base_torque * beta_v
         
         # Feature 26: Preemptive shedding for bank suction drag
-        if hydro_res['bank_suction_force_n'] > 10000.0:
-            coordinated_torque -= (hydro_res['bank_suction_force_n'] * 0.1)
-            
+        if bank_suction_force > 10000.0:
+            coordinated_torque -= (bank_suction_force * 0.1)
+
         final_motor_torque = max(-self.max_torque, min(self.max_torque, coordinated_torque))
-        
-        # 3. Coordinated Steering Control Law (With Active Wave Roll Damping)
-        # Low-Frequency Trajectory + High-Frequency Damping
-        delta_steering = 1.8 * (targets['target_yaw_rate'] - telemetry['yaw_rate_rads'])
-        delta_stabilization = -2.5 * telemetry['roll_rate_rads']
+
+        # --- 5. CLOSED-LOOP STEERING GEAR EXECUTION ---
+        raw_target_yaw_rate = targets.get('target_yaw_rate', 0.0)
+        safe_yaw_rate = self._enforce_propeller_shear_protection(raw_target_yaw_rate, current_omega)
+
+        # Coordinated Law: Low-Frequency Trajectory + High-Frequency Roll Damping
+        delta_steering = 1.8 * (safe_yaw_rate - telemetry.get('yaw_rate_rads', 0.0))
+        delta_stabilization = -2.5 * telemetry.get('roll_rate_rads', 0.0)
         
         combined_rudder_deg = math.degrees(delta_steering + delta_stabilization)
-        
-        # Inject the asymmetric feedforward channel trim bias directly into the total
         asymmetric_stabilized_rudder_deg = combined_rudder_deg + delta_trim_deg
         
-        # Feature 43: Clean wave noise using the second-order notch filter
+        # Feature 43: Clear out high-frequency wave-slap hydraulic oscillations
         notch_filtered_rudder = self._execute_feature_43_notch_filter(asymmetric_stabilized_rudder_deg, dt)
         
-        # Feature 65: Apply Speed-Dependent Rudder Saturation Hard Limits
-        rudder_cap = mimo_res['clamped_rudder_boundary_deg']
+        # Feature 65: Apply Speed-Dependent Rudder Angle Saturation Cap
+        rudder_cap = self.max_rudder_deg * math.exp(-0.015 * abs(current_omega))
         final_rudder_pos = max(-rudder_cap, min(rudder_cap, notch_filtered_rudder))
+
+        predicted_roll_moment = self._calculate_rudder_roll_moment(final_rudder_pos, speed_ms)
+
+        # --- 6. STRUCTURAL TRACKING CHECK MATRIX ---
+        m_bend = self.K_bend * self.rho * (current_omega ** 2) * (self.D ** 5) * telemetry.get('yaw_rate_rads', 0.0)
+        m_gyro = self.J_prop * current_omega * telemetry.get('yaw_rate_rads', 0.0)
+        m_total_structural = abs(m_bend) + abs(m_gyro)
         
-        # 4. Compile Upstream Telemetry Interface Dictionary
-        upstream_autonomy_injection_packet = {
+        allowable_moment = 1500000.0 / 2.5
+        structural_load_pct = (m_total_structural / allowable_moment) * 100.0
+
+        self.current_rpm_state = current_rpm
+
+        # Compile interface packet structures
+        upstream_autonomy_packet = {
             "UNIVAC_Water_Insight_Link": {
                 "subsurface_ventilation_index": round(beta_v, 3),
-                "predicted_keel_clearance_meters": round(telemetry['depth'] - hydro_res['dynamic_draft_meters'], 2),
-                "structural_fatigue_load_percentage": round(mimo_res['structural_yield_percentage'], 1),
-                "parametric_roll_harmonic_warning": wave_res['parametric_roll_risk'],
-                "leeway_crab_angle_compensation_deg": round(math.degrees(nav_res['crab_angle_rad']), 2),
-                "asymmetric_channel_trim_applied_deg": round(delta_trim_deg, 2)
+                "predicted_keel_clearance_meters": round(telemetry.get('depth', 50.0) - dynamic_draft, 2),
+                "structural_fatigue_load_percentage": round(structural_load_pct, 1),
+                "asymmetric_channel_trim_applied_deg": round(delta_trim_deg, 2),
+                "predicted_rudder_roll_moment_nm": round(predicted_roll_moment, 1),
+                "structural_yaw_override_active": abs(raw_target_yaw_rate - safe_yaw_rate) > 0.01
             }
         }
         
         return {
             "command_motor_torque_nm": round(final_motor_torque, 1),
             "command_rudder_angle_deg": round(final_rudder_pos, 2),
-            "active_structural_moment_nm": round(mimo_res['structural_moment_total_nm'], 1),
-            "active_rpm_cap": round(active_target_rpm, 1),
-            "shallow_water_slowdown_active": override_flag,
-            "upstream_autonomy_telemetry": upstream_autonomy_injection_packet
-        }
-
-    """
-    MASTER EXECUTION ENGINE: UNIVAC REPLACEMENT BRIDGE
-    Synthesizes Aegis/Sea Machines target requests with physical hull limits.
-    Incorporates all 75 features, including propeller diameter shear protection
-    and rudder-length roll coupling.
-    """
-# Create an instance of the weapons matrix inside your main bootstrap launcher:
-from src.config.weapon_balance_matrix import NavalWeaponsBalanceMatrix
-weapons_matrix = NavalWeaponsBalanceMatrix()
-
-# Inside your 50Hz execution loop thread, ingest live weapon telemetry strings:
-weapon_impact = weapons_matrix.evaluate_vessel_cross_coupling_impact(
-    ship_class='DDG_ARLEIGH_BURKE',
-    weapon_azimuth_deg=telemetry['gun_azimuth_deg'],
-    weapon_elevation_deg=telemetry['gun_elevation_deg'],
-    az_rate=telemetry['gun_azimuth_rate_rads'],
-    el_rate=telemetry['gun_elevation_rate_rads']
-)
-
-# Apply the weapon's induced list angle directly as an addition to your live roll sensors
-# to ensure the Rudder Roll Stabilization (RRS) matrices pre-compensate for the gun's weight:
-telemetry['roll_angle_rad'] += math.radians(weapon_impact['induced_roll_list_angle_deg'])
-    
-    def __init__(self, vessel_profile: Dict[str, float]):
-        # 1. Exact Physical Vessel Dimensions (Crucial for Hydrodynamic Gating)
-        self.D = vessel_profile.get('diameter', 3.4)                  # Propeller Diameter (Meters)
-        self.draft = vessel_profile.get('draft', 6.5)                 # Static Draft (Meters)
-        self.hull_length = vessel_profile.get('hull_length', 45.0)    # Length overall (Meters)
-        self.rudder_arm_z = vessel_profile.get('rudder_arm_z', 2.8)   # Distance from Center of Gravity to Rudder Center of Effort (Meters)
-        
-        # 2. Structural Yields & Inertia
-        self.J_prop = vessel_profile.get('inertia_prop', 500.0)       # Shaft Inertia
-        self.max_yield_torque = vessel_profile.get('max_torque', 90000.0)
-        self.max_rudder_deg = vessel_profile.get('max_rudder_deg', 35.0)
-        self.rho = 1025.0  # Saltwater density (kg/m^3)
-        
-        # 3. Instantiate UNIVAC Math Subsystems
-        try:
-            self.wave_matrix = WaveParameterMatrix(diameter=self.D, draft=self.draft)
-            self.bank_suction = BankSuctionLookupTable(draft=self.draft, length=self.hull_length)
-            self.hydro_predictor = HydroCoordinatedPredictor(
-                diameter=self.D, inertia=self.J_prop, draft=self.draft, 
-                max_torque=self.max_yield_torque, max_rudder_deg=self.max_rudder_deg, kt=0.85
-            )
-            self.nav_mod = NAVMOD_Subsystem()
-            self.subsystems_online = True
-        except NameError:
-            self.subsystems_online = False
-            print("[CRITICAL] Running in Safe-Mode. Advanced subsystems offline.")
-
-        # Engine State Tracking
-        self.current_rpm = 0.0
-        self.current_rudder = 0.0
-
-    # ==============================================================================
-    # INTERNAL FEATURE: PROPELLER DIAMETER BENDING MOMENT CLAMP
-    # ==============================================================================
-    def _enforce_propeller_shear_protection(self, target_yaw_rate: float, current_omega: float) -> float:
-        """
-        Uses Propeller Diameter (D^5) to calculate asymmetrical lift during a turn.
-        Prevents the propeller from snapping off if Aegis commands a sharp turn at high RPM.
-        """
-        # Kbend is a generic hydrodynamic lift coefficient for the blade foil
-        k_bend = 0.015 
-        
-        # M_bend = K * rho * omega^2 * D^5 * yaw_rate
-        # Notice how D^5 makes propeller diameter the most critical factor in shaft safety
-        projected_bending_moment = k_bend * self.rho * (current_omega**2) * (self.D**5) * abs(target_yaw_rate)
-        
-        safety_factor = 0.85
-        max_allowable_moment = self.max_yield_torque * safety_factor
-        
-        if projected_bending_moment > max_allowable_moment:
-            # Calculate the mathematically maximum safe yaw rate for this specific RPM and Propeller Diameter
-            safe_yaw_rate = max_allowable_moment / (k_bend * self.rho * (current_omega**2) * (self.D**5))
-            return math.copysign(safe_yaw_rate, target_yaw_rate)
-        
-        return target_yaw_rate
-
-    # ==============================================================================
-    # INTERNAL FEATURE: RUDDER LENGTH ROLL COUPLING
-    # ==============================================================================
-    def _calculate_rudder_roll_moment(self, actual_rudder_deg: float, speed_ms: float) -> float:
-        """
-        Uses the Rudder Arm Z-Axis length to predict how much the hull will lean 
-        when the rudder bites into the water.
-        """
-        rudder_area = 4.5 # Sq meters, parameterized 
-        lift_coeff = 0.1 * actual_rudder_deg # Simplified linear lift curve
-        
-        lateral_force = 0.5 * self.rho * (speed_ms**2) * rudder_area * lift_coeff
-        
-        # Moment = Force * Distance (Rudder Arm Length from CG)
-        roll_moment_nm = lateral_force * self.rudder_arm_z
-        return roll_moment_nm
-
-    # ==============================================================================
-    # MASTER EXECUTION LOOP (Runs at 10Hz - 50Hz)
-    # ==============================================================================
-    def execute_bridge_loop(self, autonomy_targets: Dict[str, float], telemetry: Dict[str, float], dt: float) -> Dict[str, Any]:
-        """
-        The central multi-rate matrix. Ingests targets, runs 75-feature physics math, 
-        and outputs raw torque and angle commands for the serial hardware.
-        """
-        # 1. Unpack Current State
-        current_rpm = telemetry.get('rpm', self.current_rpm)
-        current_omega = (current_rpm * 2.0 * math.pi) / 60.0
-        depth = telemetry.get('depth', 50.0)
-        speed_ms = telemetry.get('speed_ms', 0.0)
-        
-        # 2. Extract Requested Targets (From Aegis or Autopilot)
-        requested_rpm = autonomy_targets.get('rpm', current_rpm)
-        requested_yaw_rate = autonomy_targets.get('target_yaw_rate', 0.0)
-
-        # ----------------------------------------------------------------------
-        # STAGE 1: ENVIRONMENTAL MODIFIERS (Waves & Boundaries)
-        # ----------------------------------------------------------------------
-        ventilation_beta = 1.0
-        wave_notch_rudder = requested_yaw_rate
-        autopilot_trim = 0.0
-        
-        if self.subsystems_online:
-            # Feature 26-27: Bank Suction & Cushion 
-            bank_data = self.bank_suction.evaluate_bank_forces(telemetry, dt)
-            autopilot_trim = bank_data.get('suggested_autopilot_counter_rudder_deg', 0.0)
-            
-            # Feature 40-43: Autoregressive Wave Protection
-            wave_data = self.wave_matrix.process_wave_cycle(requested_rpm, requested_yaw_rate, telemetry, dt)
-            ventilation_beta = wave_data.get('internal_ventilation_index', 1.0)
-            wave_notch_rudder = wave_data.get('command_rudder_angle_deg', requested_yaw_rate)
-
-        # ----------------------------------------------------------------------
-        # STAGE 2: PHYSICAL HULL STRUCTURAL GATING
-        # ----------------------------------------------------------------------
-        # Apply Propeller Diameter (D^5) Gyroscopic/Bending limit to the requested turn
-        safe_yaw_rate = self._enforce_propeller_shear_protection(requested_yaw_rate, current_omega)
-        
-        # Apply Rudder Roll Stabilization (RRS) & Squat Limits
-        if self.subsystems_online:
-            final_torque, final_rudder_deg, _ = self.hydro_predictor.execute_maneuver(
-                target_rpm=requested_rpm,
-                target_yaw_rate=safe_yaw_rate,
-                telemetry=telemetry,
-                dt=dt
-            )
-        else:
-            # Fallback basic pass-through if sub-modules are missing
-            final_torque = (requested_rpm - current_rpm) * 100.0
-            final_rudder_deg = math.degrees(safe_yaw_rate)
-
-        # Pre-emptively scale torque down if the Wave Matrix predicts the propeller is lifting out of the water
-        final_torque = final_torque * ventilation_beta
-        
-        # Apply Bank Cushion trim offset so the ship drives straight next to canal walls
-        final_rudder_deg += autopilot_trim
-
-        # Calculate predicted roll moment from this rudder action for Sea Machines logging
-        predicted_roll_moment = self._calculate_rudder_roll_moment(final_rudder_deg, speed_ms)
-
-        # ----------------------------------------------------------------------
-        # STAGE 3: CLAMP TO HARDWARE LIMITS & UPDATE STATE
-        # ----------------------------------------------------------------------
-        self.current_rudder = max(-self.max_rudder_deg, min(self.max_rudder_deg, final_rudder_deg))
-        safe_torque_nm = max(-self.max_yield_torque, min(self.max_yield_torque, final_torque))
-
-        # ----------------------------------------------------------------------
-        # STAGE 4: DISPATCH OUTPUTS
-        # ----------------------------------------------------------------------
-        return {
-            'command_motor_torque_nm': round(safe_torque_nm, 2),
-            'command_rudder_angle_deg': round(self.current_rudder, 2),
-            
-            # The "Upstream Autonomy Telemetry" payload feeds rich hydrodynamic data 
-            # back to Aegis or Sea Machines so they know *why* the ship isn't turning as requested.
-            'upstream_autonomy_telemetry': {
-                'propeller_ventilation_risk': round(1.0 - ventilation_beta, 3),
-                'structural_yaw_override_active': abs(requested_yaw_rate - safe_yaw_rate) > 0.01,
-                'predicted_rudder_roll_moment_nm': round(predicted_roll_moment, 1),
-                'bank_suction_trim_active': autopilot_trim != 0.0
-            }
+            "active_structural_moment_nm": round(m_total_structural, 1),
+            "active_rpm_cap": round(profiled_target_rpm, 1),
+            "shallow_water_slowdown_active": slowdown_active,
+            "upstream_autonomy_telemetry": upstream_autonomy_packet
         }
 
 # ==============================================================================
 # VERIFICATION EXECUTION PROFILE
 # ==============================================================================
 if __name__ == "__main__":
-    # Initialize the engine with EXACT physical naval measurements
     vessel_config = {
-        'diameter': 3.4,           # D^5 multiplier for shaft torque
-        'inertia_prop': 500.0, 
-        'draft': 6.5, 
-        'hull_length': 45.0, 
-        'rudder_arm_z': 2.8,       # Length for roll coupling
-        'max_torque': 90000.0,
-        'max_rudder_deg': 35.0
+        'diameter': 3.4, 'inertia_prop': 500.0, 'draft': 6.5, 
+        'max_torque': 90000.0, 'max_rudder_deg': 35.0, 
+        'hull_length': 45.0, 'beam': 9.5, 'rudder_arm_z': 2.8
     }
     
     print("=====================================================================")
@@ -312,38 +298,22 @@ if __name__ == "__main__":
     
     engine = UnivacReplacementBridgeEngine(vessel_config)
     
-    # Simulating a highly stressful environment: 
-    # High speed, shallow depth, heavy wave roll, and close to a canal bank.
+    # Testing combined stress profiles: Cruising at 500 RPM near a canal bank while 
+    # firing the Mk 92 gun system in rough shallow water.
     telemetry_sample = {
-        'rpm': 500.0, 
-        'depth': 7.8, 
-        'speed_ms': 7.5, 
-        'bow_sensor_meters': -1.9, # Predicting a wave trough
-        'yaw_rate_rads': 0.04, 
-        'roll_angle_rad': 0.08, 
-        'roll_rate_rads': 0.14,
-        'distance_to_bank_meters': 14.5, 
-        'rudder_deg': 5.0
+        'rpm': 500.0, 'depth': 7.8, 'speed_ms': 7.5, 'bow_sensor_meters': -1.9,
+        'yaw_rate_rads': 0.04, 'roll_angle_rad': 0.08, 'roll_rate_rads': 0.14,
+        'distance_to_bank_meters': 14.5, 'rudder_deg': 5.0,
+        'gun_azimuth_deg': 45.0, 'gun_elevation_deg': 10.0,
+        'gun_azimuth_rate_rads': 0.1, 'gun_elevation_rate_rads': 0.05
     }
+    target_sample = {'rpm': 550.0, 'target_yaw_rate': 0.15}
     
-    # Aegis/Sea Machines requests full speed and a dangerously sharp turning arc
-    target_sample = {
-        'rpm': 650.0, 
-        'target_yaw_rate': 0.15 # Highly aggressive turn request
-    }
-    
-    print(">> INGESTING TARGETS:")
-    print(f"Requested RPM: {target_sample['rpm']}")
-    print(f"Requested Yaw Rate: {target_sample['target_yaw_rate']} rad/s\n")
-    
-    # Execute 1 clock cycle (100ms)
     commands = engine.execute_bridge_loop(target_sample, telemetry_sample, dt=0.1)
     
-    print(">> DISPATCHING HARDWARE COMMANDS:")
     print(f"Motor Torque Command:  {commands['command_motor_torque_nm']} Nm")
     print(f"Rudder Angle Command:  {commands['command_rudder_angle_deg']} Degrees\n")
-    
     print(">> UPSTREAM TELEMETRY TO SEA MACHINES/AEGIS:")
-    for key, val in commands['upstream_autonomy_telemetry'].items():
+    for key, val in commands['upstream_autonomy_telemetry']['UNIVAC_Water_Insight_Link'].items():
         print(f" - {key.replace('_', ' ').title()}: {val}")
     print("\n=====================================================================")
