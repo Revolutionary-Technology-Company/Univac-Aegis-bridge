@@ -16,6 +16,8 @@ from network_layer.tcp_command_listener import JsonTcpCommandListener
 from network_layer.weapon_serial_parser import WeaponSerialBusParser
 from network_layer.data_logger_node import AutomatedMissionDataLogger
 from network_layer.weapon_async_parser import WeaponAsyncParserExtension
+from src.network_layer.weapon_serial_serializer import WeaponSerialOutputSerializer
+ew_serializer = WeaponSerialOutputSerializer(manufacturer_code="UNVC")
 
 # Instantiate the high-speed async gun-ring decoder extension
 weapon_async_link = WeaponAsyncParserExtension(manufacturer_code="MK45")
@@ -125,7 +127,20 @@ def bootstrap_system():
             # Append the exact engine and sensor snapshot state to the RAM caching queues
             mission_logger.log_snapshot(actuator_commands, live_telemetry)
 
-            # 7. Enforce strict deterministic clock bounding limits
+            jammer_track = ew_system.compute_jammer_location(live_telemetry['own_strobe_deg'], consort_telemetry)
+
+            if jammer_track['triangulation_valid']:
+            # Evaluate weapons inventory states and assign idle mounts to target the jammer
+            mount_allocations = ew_system.allocate_idle_weapons(shipboard_weapons_inventory)
+    
+            # Serialize the allocation array into raw NMEA-style byte blocks
+            ew_wire_packets = ew_serializer.serialize_jammer_suppression_commands(mount_allocations)
+    
+            # Push the packets sequentially down your active RS-422 copper line to weapon servos
+            for wire_frame in ew_wire_packets:
+            weapon_bus_serial_port.write(wire_frame)
+
+            # 7. Enforce strict deterministic clock bounding limits (Move this above jammer track to move stealth while cannons are sleeping.)
             execution_time = time.time() - start_cycle_time
             sleep_window = dt - execution_time
             if sleep_window > 0:
