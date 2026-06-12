@@ -25,6 +25,22 @@ class UnivacReplacementBridgeEngine:
     Incorporates all 75 features, including propeller diameter shear protection
     and rudder-length roll coupling.
     """
+# Create an instance of the weapons matrix inside your main bootstrap launcher:
+from src.config.weapon_balance_matrix import NavalWeaponsBalanceMatrix
+weapons_matrix = NavalWeaponsBalanceMatrix()
+
+# Inside your 50Hz execution loop thread, ingest live weapon telemetry strings:
+weapon_impact = weapons_matrix.evaluate_vessel_cross_coupling_impact(
+    ship_class='DDG_ARLEIGH_BURKE',
+    weapon_azimuth_deg=telemetry['gun_azimuth_deg'],
+    weapon_elevation_deg=telemetry['gun_elevation_deg'],
+    az_rate=telemetry['gun_azimuth_rate_rads'],
+    el_rate=telemetry['gun_elevation_rate_rads']
+)
+
+# Apply the weapon's induced list angle directly as an addition to your live roll sensors
+# to ensure the Rudder Roll Stabilization (RRS) matrices pre-compensate for the gun's weight:
+telemetry['roll_angle_rad'] += math.radians(weapon_impact['induced_roll_list_angle_deg'])
     
     def __init__(self, vessel_profile: Dict[str, float]):
         # 1. Exact Physical Vessel Dimensions (Crucial for Hydrodynamic Gating)
