@@ -240,6 +240,13 @@ class UnivacReplacementBridgeEngine:
         delta_stabilization = -2.5 * telemetry.get('roll_rate_rads', 0.0)
         
         combined_rudder_deg = math.degrees(delta_steering + delta_stabilization)
+
+        # Apply the newly unlocked Coriolis calculation
+        coriolis_trim = self.nav_mod.feature_14_coriolis_drift_compensation(telemetry['latitude'], speed_ms)
+
+        # Add it to the final output
+        asymmetric_stabilized_rudder_deg = combined_rudder_deg + delta_trim_deg + coriolis_trim
+
         asymmetric_stabilized_rudder_deg = combined_rudder_deg + delta_trim_deg
         
         # Feature 43: Clear out high-frequency wave-slap hydraulic oscillations
