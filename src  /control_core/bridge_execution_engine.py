@@ -23,6 +23,91 @@ from control_core.asymmetric_trim_subroutine import AsymmetricRudderTrimSubrouti
 
 # Inside your UnivacReplacementBridgeEngine __init__:
 self.trim_subroutine = AsymmetricRudderTrimSubroutine(vessel_profile)
+    def execute_bridge_loop(self, targets: dict, telemetry: dict, dt: float) -> dict:
+        """
+        Executes a single hard-real-time multi-variable tracking cycle.
+        Processes geodetics, shallow boundaries, wave predictions, asymmetric trim, 
+        and structural safety caps.
+        """
+        # Convert mechanical shaft speed to analytical radians/second
+        current_omega = (telemetry['rpm'] * 2.0 * math.pi) / 60.0
+        
+        # 1. Execute Subsystem Models
+        nav_res = self._execute_navmod_geodetics(targets, telemetry)
+        hydro_res = self._execute_hydromod_boundaries(telemetry)
+        wave_res = self._execute_wavemod_forecaster(telemetry)
+        mimo_res = self._execute_mimomod_interlocks(targets, telemetry, current_omega)
+        
+        # New Integration: Calculate asymmetric canal bank trim if available
+        # This prevents the hull from sucking into channel walls
+        if hasattr(self, 'trim_subroutine'):
+            trim_res = self.trim_subroutine.calculate_asymmetric_channel_trim(telemetry)
+            delta_trim_deg = trim_res['asymmetric_trim_required_deg']
+        else:
+            delta_trim_deg = 0.0
+        
+        # 2. Coordinated Propulsion Control Law (With Shallow-Water Cap Interlocks)
+        if hydro_res['froude_depth_number'] > 0.85:
+            active_target_rpm = min(targets['rpm'], 250.0)  # Safe shallow crawl speed cap
+            override_flag = True
+        else:
+            active_target_rpm = targets['rpm']
+            override_flag = False
+            
+        target_omega = (active_target_rpm * 2.0 * math.pi) / 60.0
+        speed_error = target_omega - current_omega
+        
+        # PI Velocity Loop Execution
+        self.integral_speed_error += speed_error * dt
+        base_torque = (220.0 * speed_error) + (10.0 * self.integral_speed_error)
+        
+        # Feature 42: Active Wave Torque Attenuation Profile
+        beta_v = wave_res['ventilation_factor_beta']
+        coordinated_torque = base_torque * beta_v
+        
+        # Feature 26: Preemptive shedding for bank suction drag
+        if hydro_res['bank_suction_force_n'] > 10000.0:
+            coordinated_torque -= (hydro_res['bank_suction_force_n'] * 0.1)
+            
+        final_motor_torque = max(-self.max_torque, min(self.max_torque, coordinated_torque))
+        
+        # 3. Coordinated Steering Control Law (With Active Wave Roll Damping)
+        # Low-Frequency Trajectory + High-Frequency Damping
+        delta_steering = 1.8 * (targets['target_yaw_rate'] - telemetry['yaw_rate_rads'])
+        delta_stabilization = -2.5 * telemetry['roll_rate_rads']
+        
+        combined_rudder_deg = math.degrees(delta_steering + delta_stabilization)
+        
+        # Inject the asymmetric feedforward channel trim bias directly into the total
+        asymmetric_stabilized_rudder_deg = combined_rudder_deg + delta_trim_deg
+        
+        # Feature 43: Clean wave noise using the second-order notch filter
+        notch_filtered_rudder = self._execute_feature_43_notch_filter(asymmetric_stabilized_rudder_deg, dt)
+        
+        # Feature 65: Apply Speed-Dependent Rudder Saturation Hard Limits
+        rudder_cap = mimo_res['clamped_rudder_boundary_deg']
+        final_rudder_pos = max(-rudder_cap, min(rudder_cap, notch_filtered_rudder))
+        
+        # 4. Compile Upstream Telemetry Interface Dictionary
+        upstream_autonomy_injection_packet = {
+            "UNIVAC_Water_Insight_Link": {
+                "subsurface_ventilation_index": round(beta_v, 3),
+                "predicted_keel_clearance_meters": round(telemetry['depth'] - hydro_res['dynamic_draft_meters'], 2),
+                "structural_fatigue_load_percentage": round(mimo_res['structural_yield_percentage'], 1),
+                "parametric_roll_harmonic_warning": wave_res['parametric_roll_risk'],
+                "leeway_crab_angle_compensation_deg": round(math.degrees(nav_res['crab_angle_rad']), 2),
+                "asymmetric_channel_trim_applied_deg": round(delta_trim_deg, 2)
+            }
+        }
+        
+        return {
+            "command_motor_torque_nm": round(final_motor_torque, 1),
+            "command_rudder_angle_deg": round(final_rudder_pos, 2),
+            "active_structural_moment_nm": round(mimo_res['structural_moment_total_nm'], 1),
+            "active_rpm_cap": round(active_target_rpm, 1),
+            "shallow_water_slowdown_active": override_flag,
+            "upstream_autonomy_telemetry": upstream_autonomy_injection_packet
+        }
 
     """
     MASTER EXECUTION ENGINE: UNIVAC REPLACEMENT BRIDGE
