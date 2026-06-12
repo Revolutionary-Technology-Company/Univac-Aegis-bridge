@@ -63,6 +63,20 @@ Checksum = XOR sum of ord(char) for all characters in the payload body.
 * Example Binary Frame:
   $PUNVCSTB,14.12,12.5,1*33\r\n
 
+  ## 3.E. Environmental Bilge Valve Actuator Command Set ($PUNVCBLG)
+* Source Subsystem: Bilge Gating Subroutine (bilge_gating_subroutine.py)
+* Target Hardware Link: Three-Way Overboard Discharge Actuator Valve / OCM Interface PLC
+* Transmission Cadence: 50Hz Frequency Cycles (20ms intervals)
+* Sentence Template:
+  $PUNVCBLG,[Overboard_Open],[Recirc_Open],[Total_Volume_Liters]*[CS]\r\n
+* Payload Fields Specification:
+  * Overboard_Open: Integer, 1-bit. 1 = Open overboard dump line, 0 = Close.
+  * Recirc_Open: Integer, 1-bit. 1 = Open recirculation route back to slop tank, 0 = Close.
+  * Total_Volume_Liters: Float, 1 decimal place. Accumulated log ledger tracking clean discharge.
+* Example Binary Frame:
+  $PUNVCBLG,1,0,142.5*2C\r\n
+
+
 ## 4. High-Speed Ordnance Bus Commands (Electronic Warfare)
 
 ### A. Asymmetric Jammer Suppression Command Set ($PUNVCEW)
