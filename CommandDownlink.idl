@@ -1,4 +1,3 @@
-// Saved as CommandDownlink.idl
 struct AegisActuationCommand {
     unsigned long unique_engagement_id;
     unsigned long raw_launcher_azimuth;
