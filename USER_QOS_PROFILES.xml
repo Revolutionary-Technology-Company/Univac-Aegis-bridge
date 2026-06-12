@@ -3,9 +3,7 @@
      xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/7.3.0/rti_dds_qos_profiles.xsd">
 
     <qos_library name="TacticalCombatLibrary">
-        
         <qos_profile name="BaseTacticalProfile" is_default_qos="true">
-            
             <resource_limits>
                 <max_samples>4096</max_samples>
                 <max_instances>1024</max_instances>
@@ -13,92 +11,98 @@
                 <initial_samples>256</initial_samples>
                 <initial_instances>64</initial_instances>
             </resource_limits>
-
             <destination_order>
                 <kind>BY_SOURCE_TIMESTAMP_DESTINATIONORDER_QOS</kind>
             </destination_order>
-
             <latency_budget>
                 <duration>
                     <sec>0</sec>
-                    <nanosec>5000000</nanosec> </duration>
+                    <nanosec>5000000</nanosec> 
+                </duration>
             </latency_budget>
-
             <property>
                 <value>
                     <element>
                         <name>dds.transport.UDPv4.builtin.recv_socket_buffer_size</name>
-                        <value>1048576</value> </element>
+                        <value>1048576</value> 
+                    </element>
                     <element>
                         <name>dds.transport.UDPv4.builtin.send_socket_buffer_size</name>
-                        <value>1048576</value> </element>
+                        <value>1048576</value> 
+                    </element>
                 </value>
             </property>
         </qos_profile>
 
-
         <qos_profile name="HighPriorityTargetProfile" base_name="BaseTacticalProfile">
-            
             <reliability>
                 <kind>RELIABLE_RELIABILITY_QOS</kind>
                 <max_blocking_time>
                     <sec>0</sec>
-                    <nanosec>20000000</nanosec> </max_blocking_time>
+                    <nanosec>20000000</nanosec> 
+                </max_blocking_time>
             </reliability>
-
             <history>
                 <kind>KEEP_LAST_HISTORY_QOS</kind>
                 <depth>1</depth> 
             </history>
-
             <durability>
                 <kind>VOLATILE_DURABILITY_QOS</kind>
             </durability>
-
             <transport_priority>
                 <value>46</value> 
             </transport_priority>
-
             <deadline>
                 <period>
                     <sec>0</sec>
-                    <nanosec>100000000</nanosec> </period>
+                    <nanosec>100000000</nanosec> 
+                </period>
             </deadline>
-
             <lifespan>
                 <duration>
-                    <sec>2</sec> <nanosec>0</nanosec> 
+                    <sec>2</sec> 
+                    <nanosec>0</nanosec> 
                 </duration>
             </lifespan>
-
             <liveliness>
                 <kind>AUTOMATIC_LIVELINESS_QOS</kind>
                 <lease_duration>
                     <sec>0</sec>
-                    <nanosec>300000000</nanosec> </lease_duration>
+                    <nanosec>300000000</nanosec> 
+                </lease_duration>
             </liveliness>
         </qos_profile>
 
-
         <qos_profile name="WeaponActuationCommandProfile" base_name="BaseTacticalProfile">
-            
             <reliability>
                 <kind>RELIABLE_RELIABILITY_QOS</kind>
                 <max_blocking_time>
-                    <sec>1</sec> <nanosec>0</nanosec>
+                    <sec>1</sec> 
+                    <nanosec>0</nanosec>
                 </max_blocking_time>
             </reliability>
-
             <history>
                 <kind>KEEP_ALL_HISTORY_QOS</kind>
             </history>
-
             <durability>
                 <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
             </durability>
-
             <ownership>
                 <kind>EXCLUSIVE_OWNERSHIP_QOS</kind>
             </ownership>
             <ownership_strength>
-                <value>100</value> </ownership_strength>
+                <value>100</value> 
+            </ownership_strength>
+            <transport_priority>
+                <value>48</value> 
+            </transport_priority>
+            <liveliness>
+                <kind>MANUAL_BY_TOPIC_LIVELINESS_QOS</kind>
+                <lease_duration>
+                    <sec>0</sec>
+                    <nanosec>500000000</nanosec> 
+                </lease_duration>
+            </liveliness>
+        </qos_profile>
+    </qos_library>
+</dds>
