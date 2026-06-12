@@ -108,3 +108,16 @@ Checksum = XOR sum of ord(char) for all characters in the payload body.
   * Fault_Mask: 4-Digit Hexadecimal string. Servo drive health tracking mask (0000 = Nominal healthy lock).
 * Example Binary Frame:
   $PMK45,090.58,025.15,0000*24\r\n
+
+## 3.D. Autonomous Anchor Windlass Override Command Set ($PUNVCANC)
+* Source Subsystem: Anchor Interlock Subroutine (anchor_interlock_subroutine.py)
+* Target Hardware Link: Anchor Windlass Hydraulic Clutch / Hydraulic Lock Pin Solenoid PLC
+* Transmission Cadence: 50Hz Frequency Cycles (20ms intervals)
+* Sentence Template:
+  $PUNVCANC,[Clutch_Engage],[Brake_Lock],[Sea_Machines_Blocked]*[CS]\r\n
+* Payload Fields Specification:
+  * Clutch_Engage: Integer, 1-bit. 1 = Force hoist/clutch engagement, 0 = Release.
+  * Brake_Lock: Integer, 1-bit. 1 = Drive physical mechanical locking pin down, 0 = Retract pin.
+  * Sea_Machines_Blocked: Integer, 1-bit. 1 = Block incoming Sea Machines anchor commands, 0 = Allow.
+* Example Binary Frame:
+  $PUNVCANC,1,1,1*0E\r\n
