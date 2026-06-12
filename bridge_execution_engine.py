@@ -19,6 +19,11 @@ except ImportError as e:
     print(f"[WARNING] Sub-module import failed. Ensure /src/ directory is accessible. Error: {e}")
 
 class UnivacReplacementBridgeEngine:
+from control_core.asymmetric_trim_subroutine import AsymmetricRudderTrimSubroutine
+
+# Inside your UnivacReplacementBridgeEngine __init__:
+self.trim_subroutine = AsymmetricRudderTrimSubroutine(vessel_profile)
+
     """
     MASTER EXECUTION ENGINE: UNIVAC REPLACEMENT BRIDGE
     Synthesizes Aegis/Sea Machines target requests with physical hull limits.
