@@ -34,6 +34,10 @@ from network_layer.data_logger_node import AutomatedMissionDataLogger
 from network_layer.flag_fault_logger import FlagHalyardFaultLogger
 from network_layer.bilge_audit_logger import BilgeEnvironmentalAuditLogger
 from network_layer.univac_architecture_hal import UnivacArchitectureHAL
+from network_layer.cray_gray_code_parser import CrayGrayCodeParserExtension
+
+# Initialize the Cray Gray-code decoder node
+cray_bus_decoder = CrayGrayCodeParserExtension()
 
 # Boot the Dynamic Multi-Model Hardware Abstraction Layer
 univac_hal = UnivacArchitectureHAL()
