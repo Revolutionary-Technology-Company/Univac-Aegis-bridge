@@ -135,6 +135,22 @@ Checksum = XOR sum of ord(char) for all characters in the payload body.
 * Example Binary Frame:
   $PUNVCDIA,4.12,-1245.5,0.014,1*2F\r\n
 
+  ## 3.K. Centralized Environmental Tides & Robotics Command Set ($PUNVCTDE)
+* Source Subsystem: Robotics, Cartography, and Global Tidal Subroutines (museum_history_matrix_robotics_tides.py)
+* Target Hardware Link: Central Hull Monitoring Hub / Shipyard Industrial PLC Array
+* Transmission Cadence: 50Hz continuous streaming arrays or event-driven upon override state triggers.
+* Sentence Template:
+  $PUNVCTDE,[Tide_H],[Seiche_T],[Robot_X],[Map_Y],[HAL_Profile]*[CS]\r\n
+* Payload Fields Specification:
+  * Tide_H: Float, 2 decimal places. Predicted harmonic tidal swell or water table displacement (Meters). Range: -5.00 to 10.00.
+  * Seiche_T: Float, 1 decimal place. Calculated closed-basin standing wave resonance period (Seconds). Range: 0.0 to 3600.0.
+  * Robot_X: Float, 1 decimal place. Automated shipyard robotic gantry tool-path alignment coordinate. Range: -50.0 to 50.0.
+  * Map_Y: Float, 2 decimal places. Conformal Mercator chart vertical pixel mapping projection point. Range: 0.00 to 1000.00.
+  * HAL_Profile: String. Active multi-model bit-width target selection flag currently running (e.g., AN/UYK-43).
+* Example Binary Frame:
+  $PUNVCTDE,1.25,412.5,12.4,512.44,AN/UYK-43*0D\r\n
+
+
 ## 4. High-Speed Ordnance Bus Commands (Electronic Warfare)
 
 ### A. Asymmetric Jammer Suppression Command Set ($PUNVCEW)
