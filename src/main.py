@@ -46,6 +46,31 @@ univac_hal = UnivacArchitectureHAL()
 # Target Catalog Options: '1219', 'AN/UYK-43', 'AN/UYK-20', 'AN/AYK-14', '490', '494', '1107', '1108'
 target_computer_profile = 'AN/UYK-43' 
 univac_hal.clear_interlocks_for_model(target_computer_profile)
+# 1. Instantiate the optoelectronic logic emulator during bootstrap initialization
+from control_core.led_vacuum_emulator import LedVacuumLogicEmulator
+led_valve_core = LedVacuumLogicEmulator(amplification_factor_mu=25.0)
+
+# 2. Inside your hard-deterministic 50Hz while True: loop context:
+# Ingest live grid voltage readings arriving off your data buses
+live_grid_potential_v = float(live_telemetry.get('joystick_analog_voltage_v', 0.0))
+
+# Execute the optoelectronic vacuum current calculation step (50Hz)
+valve_telemetry_snapshot = led_valve_core.calculate_led_vacuum_transfer_step(
+    grid_voltage_v=live_grid_potential_v,
+    plate_voltage_v=220.0 # Standard B+ high-voltage plate rail proxy
+)
+
+# 3. Hard Interlock Protection check:
+# If an optical saturation fault triggers, flag a safety exception state
+if valve_telemetry_snapshot['valve_saturation_fault']:
+    # Automatically cap allowed propulsion variables to protect the hardware lines
+    actuator_commands['active_rpm_cap'] = min(actuator_commands['active_rpm_cap'], 200.0)
+    
+# Append the optoelectronic metrics to your outbound network monitoring package
+actuator_commands['upstream_autonomy_telemetry']['LED_Vacuum_Status'] = valve_telemetry_snapshot
+
+# Poke your safety hardware watchdog to confirm the data pipeline is active and healthy
+watchdog.poke_watchdog('MAIN_CORE_MATH')
 
 # ------------------------------------------------------------------------------
 # ASYNCHRONOUS TRANSMISSION QUEUE (9600-Baud Trap Resolution)
