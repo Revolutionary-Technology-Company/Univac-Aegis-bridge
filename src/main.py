@@ -62,6 +62,13 @@ def bootstrap_system():
     print("        UNIVAC REPLACEMENT COGNITIVE MATRIX BRIDGE ARCHITECTURE MASTER CORE")
     print("=" * 80)
 
+    from control_core.cognitive_ring_processor import CognitiveRingProcessor
+
+    # Initialize the independent asynchronous cognitive ring processor
+    cognitive_plant = CognitiveRingProcessor(vessel_profile)
+    cognitive_data_lock = threading.Lock()
+    latest_cognitive_output = {}
+
     # 1. PRE-FLIGHT BOOT COGNITIVE SUITE
     boot_validator = AutomatedBootVerificationSuite(target_config_file="vessel_config.json", log_directory="logs")
     if not boot_validator.execute_full_suite():
