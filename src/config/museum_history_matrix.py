@@ -435,3 +435,73 @@ def equation_white_house_crypto_xor(input_char_ascii: int, pad_key_ascii: int) -
 # 75. DEEP SPACE: Optical Laser Communication Divergence Beam Diameter
 def equation_deep_space_laser_beam(distance_meters: float, initial_diameter_m: float, divergence_rad: float) -> float:
     return initial_diameter_m + (distance_meters * divergence_rad)
+
+# File Name: museum_history_matrix_part7.py
+# Location: /src/config/
+# Subsystem: Telecommunication, Legacy Battleship, and Aerospace Node Mathematical Equations Array
+
+import math
+
+# 76. BELL CRYPTO: SIGSALY Vocoder Speech Signal Quantization Noise
+# Calculates the signal-to-quantization-noise ratio (SQNR) of a digitized voice channel based on bit depth
+def equation_bell_vocoder_sqnr(number_of_bits: int) -> float:
+    return 6.02 * number_of_bits + 1.76
+
+# 77. LOCKHEED STEALTH: Faceted Surface Flat-Plate Radar Wave Scattering
+# Calculates the radar reflection coefficient of a flat plate tilted at a specific aspect angle
+def equation_lockheed_plate_scattering(area_m2: float, aspect_angle_rad: float, wavelength_m: float) -> float:
+    if wavelength_m <= 1e-5: return 0.0
+    sinc_term = math.sin(aspect_angle_rad) if abs(aspect_angle_rad) < 1e-5 else math.sin(aspect_angle_rad) / aspect_angle_rad
+    return ((4.0 * math.pi * (area_m2 ** 2)) / (wavelength_m ** 2)) * (sinc_term ** 2)
+
+# 81. PRE-UNIVAC BATTLESHIP: Synchro Differential Transformer Voltage Resolver
+# Converts an electromechanical battleship synchro phase angle into a digital tracking coordinate value
+def equation_battleship_synchro_resolver(max_voltage: float, rotor_angle_rad: float, phase_shift_rad: float) -> float:
+    return max_voltage * math.sin(rotor_angle_rad) * math.cos(phase_shift_rad)
+
+# 82. QUALCOMM CDMA: Spread-Spectrum Processing Gain Index
+# Calculates the jamming immunity gain achieved by spreading a data signal over a broad radio bandwidth
+def equation_qualcomm_cdma_gain(chip_rate_hz: float, data_rate_bps: float) -> float:
+    if data_rate_bps <= 0.1: return 0.0
+    return 10.0 * math.log10(chip_rate_hz / data_rate_bps)
+
+# 86. PI EMULATION: Legacy Computer Clock Phase-Locked Loop (PLL) Drift
+# Calculates the synchronization time drift between a modern Pi emulation loop and a legacy UNIVAC hardware clock
+def equation_pi_emulation_drift(target_freq_hz: float, actual_freq_hz: float, elapsed_sec: float) -> float:
+    return abs(target_freq_hz - actual_freq_hz) * elapsed_sec
+
+# 90. INTERFEROMETER: Satellite Radar Zenith Angle Wave Phase Shift
+# Triangulates object passes by calculating the wave phase delta between two antennas separated by a baseline
+def equation_navspasur_zenith_angle(wavelength_m: float, phase_delta_rad: float, baseline_distance_m: float) -> float:
+    denom = 2.0 * math.pi * baseline_distance_m
+    if denom <= 1e-5: return 0.0
+    val = (wavelength_m * phase_delta_rad) / denom
+    return math.acos(max(-1.0, min(1.0, val)))
+
+# --- CONTINUITY PROTOCOLS (NODES 78-80, 83-85, 87-89 GENERAL ROUTINES) ---
+def equation_mcdonnell_lead_compute(target_range_m: float, closure_rate_ms: float) -> float:
+    return target_range_m / max(0.1, closure_rate_ms)
+
+def equation_boeing_gyro_precession(angular_velocity: float, wheel_momentum: float) -> float:
+    return angular_velocity * wheel_momentum
+
+def equation_ibm_sage_track_vector(x_pos: float, y_pos: float) -> float:
+    return math.sqrt(x_pos**2 + y_pos**2)
+
+def equation_nsa_one_time_pad(data_byte: int, key_byte: int) -> int:
+    return data_byte ^ key_byte
+
+def equation_data_center_heat_flux(mass_flow_air: float, cp_air: float, temp_out: float, temp_in: float) -> float:
+    return mass_flow_air * cp_air * (temp_out - temp_in)
+
+def equation_serial_baud_transmission_time(total_bits: int, baud_rate: float) -> float:
+    return total_bits / baud_rate if baud_rate > 0 else 999.0
+
+def equation_telecom_trunk_erlangs(call_arrival_rate: float, average_call_duration_sec: float) -> float:
+    return (call_arrival_rate * average_call_duration_sec) / 3600.0
+
+def equation_weapons_interlock_voltage(source_voltage: float, contact_resistance: float) -> float:
+    return source_voltage / max(0.01, contact_resistance)
+
+def equation_crossbar_switch_crosstalk(frequency_hz: float, coupling_capacitance: float) -> float:
+    return 2.0 * math.pi * frequency_hz * coupling_capacitance
