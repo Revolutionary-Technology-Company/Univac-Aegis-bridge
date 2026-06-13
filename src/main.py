@@ -311,6 +311,7 @@ def bootstrap_system():
 
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] Intercepted manual shutdown request. Suspending communication pipes...")
+        shore_logger.stop_logger_services() # Flush remaining rows and secure locks on disk
         flag_logger.stop_logger_services() 
         bilge_logger.stop_logging_services() 
         mission_logger.stop_logging_services() 
