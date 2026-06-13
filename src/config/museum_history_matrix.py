@@ -897,3 +897,37 @@ def equation_adaptive_frequency_cancellation(amplitude_m: float, phase_rad: floa
     # Generates a mirror wave 180 degrees (pi radians) out of phase to cancel out the vibration
     cancellation_phase = phase_rad + math.pi
     return amplitude_m * math.sin(2.0 * math.pi * frequency_hz * elapsed_time + cancellation_phase)
+
+# File Name: museum_history_matrix_supercomputing.py
+# Location: /src/config/
+# Subsystem: Supercomputing, Aerospace, and Anti-Corruption Verification Equations Array
+
+import math
+
+# 256. CRAY VECTOR: Hydrodynamic Navier-Stokes Skin Friction Coefficient
+# Calculates the friction coefficient (Cf) for a hull moving at high speeds through seawater
+def equation_cray_hull_friction(reynolds_number: float) -> float:
+    if reynolds_number <= 10.0: return 0.0
+    # Standard turbulent boundary layer friction log-scale model
+    return 0.455 / ((math.log10(reynolds_number)) ** 2.58)
+
+# 260. NVIDIA TENSOR: Massively Parallel 4x4 Matrix Multiply-Accumulate Step
+# Simulates a foundational tensor core math execution step used in high-speed visual target tracking
+def equation_nvidia_tensor_accumulate(matrix_a_val: float, matrix_b_val: float, bias_val: float) -> float:
+    return (matrix_a_val * matrix_b_val) + bias_val
+
+# 269. BLIMP PROPULSION: Aerostatic Bouyant Lift Capacity Formula
+# Calculates total cargo lifting capacity for an airship carrying a heavy legacy computing stack
+def equation_blimp_buoyant_lift(envelope_volume_m3: float, density_air: float, density_gas: float) -> float:
+    if density_air <= density_gas: return 0.0
+    g_accel = 9.81
+    # Buoyancy Law: Lift = Volume * (Density_Air - Density_Gas) * g
+    return envelope_volume_m3 * (density_air - density_gas) * g_accel
+
+# 274. ANTI-CORRUPTION: Cryptographic Block-Chained Row Signature Generator
+# Generates the verification token to enforce tamper-proof security across active log sheets
+def equation_anti_corruption_hash_verify(data_payload_string: str, previous_row_hash: str) -> str:
+    concatenated_string = f"{data_payload_string},{previous_row_hash}"
+    # Computes SHA-256 signature to protect the data trail from manual editing
+    import hashlib
+    return hashlib.sha256(concatenated_string.encode('utf-8')).hexdigest()
