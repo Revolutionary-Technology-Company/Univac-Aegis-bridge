@@ -29,56 +29,14 @@ from network_layer.weapon_serial_parser import WeaponSerialBusParser
 from network_layer.weapon_async_parser import WeaponAsyncParserExtension
 from network_layer.weapon_serial_serializer import WeaponSerialOutputSerializer
 from network_layer.asymmetric_network_serializer import AsymmetricNetworkSerializer
+from network_layer.shore_weapon_serializer import ShoreWeaponSystemSerializer # NEW SHORE LINK
 
 from network_layer.data_logger_node import AutomatedMissionDataLogger
 from network_layer.flag_fault_logger import FlagHalyardFaultLogger
 from network_layer.bilge_audit_logger import BilgeEnvironmentalAuditLogger
-from network_layer.aviation_telemetry_bridge import AviationTelemetryBridgeNode
-# Initialize the Basic Aviation Knowledge network tracking link bridge
-aviation_bridge = AviationTelemetryBridgeNode(prefix_id="AVNC")
-from control_core.base_infrastructure_core import UnivacBaseInfrastructureCore
-
-# Initialize the central shore facilities utility router engine
-base_utility_manager = UnivacBaseInfrastructureCore()
-shore_link_connected = live_telemetry.get('shore_power_cable_attached', False)
-# ... Thread-safe ingestion of sensor telemetry and network targets ...
-            
-# Read connection line status string from the telemetry router
-shore_link_connected = live_telemetry.get('shore_power_cable_attached', False)
-            
-# ──────────────────────────────────────────────────────────────────────────
-# NEW INJECTION: SHORE HANDSHAKE ADAPTIVE VERIFICATION TRIGGER
-# ──────────────────────────────────────────────────────────────────────────
-# AS SOON AS THE SHIP CAN CONNECT TO SHORE, IT locks crane/pump overrides,
-# triggers an instantaneous re-audit, and validates the base infrastructure.
-if shore_link_connected and not previous_loop_shore_state:
-    print("\n[SHORE_LINK] Umbilical link connected. Commencing immediate infrastructure audit...")
-                
-    # Force emergency safe hold on base systems while checking logs
-    base_utility_manager.set_base_routing_authority("UNIVAC_DIRECT")
-                
-    # Execute the validation suite over the updated directory context
-    shore_validator = AutomatedBootVerificationSuite(log_directory="logs")
-    if not shore_validator.execute_full_suite():
-        print("[CRITICAL_SHUTDOWN] Shore facility ledger failed integrity test. Lockout engaged!")
-        # Lock cranes and drop motor torque to prevent unsafe base interactions
-        actuator_commands['command_motor_torque_nm'] = 0.0
-        active_targets['requested_base_authority_mode'] = "UNIVAC_DIRECT"
-    else:
-        print("[SHORE_LINK] Shore data logs verified. Authority transitions unlocked.")
-            
-# Cache active state to map future transition steps
-previous_loop_shore_state = shore_link_connected
-# ──────────────────────────────────────────────────────────────────────────
-
-# Continue executing standard infrastructure update steps...
-resolved_facility_states = base_utility_manager.execute_infrastructure_update_step(
-    network_commands=active_targets,
-    legacy_mainframe_inputs=mock_mainframe_inputs
-)
 
 # ------------------------------------------------------------------------------
-# AUDIT FIX 1: ASYNCHRONOUS TRANSMISSION QUEUE (9600-Baud Trap Resolution)
+# ASYNCHRONOUS TRANSMISSION QUEUE (9600-Baud Trap Resolution)
 # ------------------------------------------------------------------------------
 tx_queue = queue.Queue(maxsize=200)
 
@@ -133,6 +91,13 @@ def bootstrap_system():
     asym_serializer = AsymmetricNetworkSerializer(prefix_manufacturer="PUNVC")
     weapon_async_link = WeaponAsyncParserExtension(manufacturer_code="MK45")
     weapon_parser = WeaponSerialBusParser()
+    
+    # NEW: Shore Weapon System Serializer
+    shore_weapon_link = ShoreWeaponSystemSerializer(prefix_code="PUNVC")
+    shore_batteries_inventory = [
+        {'shore_station_id': 'SHORE_BATTERY_ALPHA', 'umbilical_link_connected': False, 'navy_combat_release_cleared': False},
+        {'shore_station_id': 'COASTAL_VLS_CELL_MATRIX', 'umbilical_link_connected': False, 'navy_combat_release_cleared': False}
+    ]
 
     # 5. DATA LOGGERS
     print("[BOOT] Starting environmental and mission audit loggers...")
@@ -156,9 +121,10 @@ def bootstrap_system():
         steering_serial_hardware_wire = serial.Serial('/dev/ttyUSB1', 9600, timeout=0)
         weapon_serial_hardware_wire = serial.Serial('/dev/ttyUSB2', 9600, timeout=0)
         machinery_bus_serial_port = serial.Serial('/dev/ttyUSB3', 9600, timeout=0)
+        shore_weapon_serial_hardware_wire = serial.Serial('/dev/ttyUSB4', 9600, timeout=0) # Shore Link
     except serial.SerialException:
         print("[WARNING] Hardware serial ports not found. Running in simulation/headless mode.")
-        steering_serial_hardware_wire, weapon_serial_hardware_wire, machinery_bus_serial_port = None, None, None
+        steering_serial_hardware_wire, weapon_serial_hardware_wire, machinery_bus_serial_port, shore_weapon_serial_hardware_wire = None, None, None, None
 
     print("\n[BOOT] System initialization complete. Entering 50Hz real-time control matrix loop.")
     print("-" * 80)
@@ -172,12 +138,7 @@ def bootstrap_system():
     try:
         while True:
             start_cycle_time = time.time()
-            # ... Base Infrastructure Core multiplexes active facility selections above ...
             
-            # Inject data snapshot metrics straight into the memory queuing array (50Hz)
-            # This handles both CSV blockchain logging and JSON live state overwrites automatically
-            shore_logger.capture_facility_state_snapshot(resolved_facility_states)
-
             # -- A. INGESTION & SENSOR PARSING --
             active_targets = command_server.get_latest_targets()
             live_telemetry = router.get_synchronized_telemetry()
@@ -199,33 +160,12 @@ def bootstrap_system():
                 az_rate=gun_metrics['azimuth_rate_rads'],
                 el_rate=gun_metrics['elevation_rate_rads']
             )
-
-            # A. Read raw incoming aerospace strings from your serial or network router cache
-            raw_aviation_string = router.get_synchronized_telemetry().get('raw_aviation_string', "")
-            current_timestamp = time.time()
-
-            # B. Ingest data and dynamically calculate velocity drifts inside the async engine block
-            live_flight_state = aviation_bridge.ingest_aerospace_sentence(raw_aviation_string, current_timestamp)
-
-            # C. If flight targets are locked, cross-couple tracking parameters straight to your rudders
-            if live_flight_state['gps_lock_valid']:
-                # Pass the computed flight crab angle into your live navigation parameters
-                # This ensures the steering control laws proactively counter aerodynamic cross-axis drift
-                live_telemetry['yaw_rate_rads'] += (live_flight_state['aerodynamic_crab_angle_rad'] * 0.1)
-                
-                # Poke your multi-ledger watchdog to confirm the flight link data is actively logging
-                watchdog.poke_watchdog('NMEA_SERIAL_IN')
-                
-            # D. Append the aviation snapshots directly to the outbound network tracking packets
-            actuator_commands['upstream_autonomy_telemetry']['Aviation_Bridge_Status'] = live_flight_state
-
-            # Pre-compensate Rudder Roll Stabilization for gun weight shift
             live_telemetry['roll_angle_rad'] += math.radians(weapon_imbalance['induced_roll_list_angle_deg'])
 
             # -- C. MASTER UNIVAC ENGINE LOOP --
             actuator_commands = engine.execute_bridge_loop(active_targets, live_telemetry, dt)
             actuator_commands['upstream_autonomy_telemetry']['Weapon_Balance_Metrics'] = weapon_imbalance
-            slew_rate_cap = actuator_commands.get('active_rpm_cap', 5.0) # Fallback mapping
+            slew_rate_cap = actuator_commands.get('active_rpm_cap', 5.0)
 
             # -- D. AUXILIARY ACTUATOR ROUTING (Anchor, Bilge, Flag, Stabilizers) --
             
@@ -260,41 +200,6 @@ def bootstrap_system():
             bilge_packet = f"${bilge_payload}*{bilge_cs:02X}\r\n".encode('ascii')
             tx_queue.put_nowait((bilge_packet, machinery_bus_serial_port))
 
-            # ... Weapons balancing, anchor interlocks, and bilge loops run above ...
-
-            # A. Check for on-the-fly facility authority shifts over your secure TCP lines
-            # Expects a JSON property: {"requested_base_authority_mode": "NETWORK_OVERRIDE"}
-            requested_base_mode = active_targets.get('requested_base_authority_mode')
-            if requested_base_mode:
-                base_utility_manager.set_base_routing_authority(requested_base_mode)
-
-            # B. Read current utility parameters arriving off your data buses
-            # (Rely on previous serial parsing libraries or extract from central router snapshot caches)
-            mock_mainframe_inputs = {'crane_hoist_power_pct': 0.0, 'substation_breaker_relay': 1, 'sump_pump_override_relay': 0, 'hvac_dehumidifier_setpoint': 45.0}
-            
-            # C. Map resolved actuator selections through the Tri-State Base Router
-            resolved_facility_states = base_utility_manager.execute_infrastructure_update_step(
-                network_commands=active_targets,       # Driven by remote workstations over TCP
-                legacy_mainframe_inputs=mock_mainframe_inputs
-            )
-            act_map = resolved_facility_states['dispatched_actuator_cache']
-
-            # D. Serialize parameters into a clean proprietary NMEA string packet for the shore PLCs
-            fac_payload = f"PUNVCFAC,{act_map['crane_hoist_power_pct']:.1f},{act_map['crane_hook_lock_solenoid']},{act_map['blast_door_actuator_state']},{act_map['substation_breaker_relay']},{act_map['sump_pump_override_relay']},{act_map['hvac_dehumidifier_setpoint']:.1f},{act_map['climate_heating_valve_open']}"
-            
-            # Calculate standard XOR checksum and write directly to your RS-422 machinery bus wire
-            fac_cs = 0
-            for char in fac_payload: fac_cs ^= ord(char)
-            fac_packet = f"${fac_payload}*{fac_cs:02X}\r\n".encode('ascii')
-            
-            try:
-                machinery_bus_serial_port.write(fac_packet)
-            except NameError:
-                pass
-
-            # E. Append facility diagnostics parameters to your outbound network tracking structures
-            actuator_commands['upstream_autonomy_telemetry']['Base_Infrastructure_Status'] = resolved_facility_states
-
             # 3. Flag Changer
             flag_actuation_commands = flag_manager.evaluate_flag_logic_matrix(
                 weapon_state=live_gun_state,
@@ -307,7 +212,7 @@ def bootstrap_system():
             flag_packet = f"${flag_payload}*{flag_cs:02X}\r\n".encode('ascii')
             tx_queue.put_nowait((flag_packet, machinery_bus_serial_port))
 
-            # 4. Asymmetric Roll Stabilizers (Port/Stbd Rudder Split)
+            # 4. Asymmetric Roll Stabilizers
             stabilizer_commands = asym_stabilizer.calculate_fire_synchronized_stabilization(
                 targets=active_targets,
                 telemetry=live_telemetry,
@@ -320,6 +225,33 @@ def bootstrap_system():
             )
             tx_queue.put_nowait((port_wire_packet, steering_serial_hardware_wire))
             tx_queue.put_nowait((stbd_wire_packet, steering_serial_hardware_wire))
+
+            # ──────────────────────────────────────────────────────────────────────────
+            # 5. SHORE COMBAT INTERLOCK DISPATCH (NEW)
+            # ──────────────────────────────────────────────────────────────────────────
+            shore_link_connected = live_telemetry.get('shore_power_cable_attached', False)
+
+            for battery in shore_batteries_inventory:
+                battery['umbilical_link_connected'] = shore_link_connected
+                battery['navy_combat_release_cleared'] = active_targets.get('navy_combat_release_cleared', False)
+
+            if shore_link_connected:
+                # The active_targets dict inherently replaces app.high_speed_numeric_buffer
+                # and is already thread-locked inside the JsonTcpCommandListener block.
+                ship_targeting_snapshot = active_targets.copy()
+                
+                shore_combat_packets = shore_weapon_link.serialize_shore_fire_commands(
+                    high_speed_target_buffer=ship_targeting_snapshot,
+                    active_shore_weapons=shore_batteries_inventory
+                )
+                
+                # Sent through the isolated TX queue to protect the 50Hz timing!
+                if shore_weapon_serial_hardware_wire:
+                    for wire_frame in shore_combat_packets:
+                        tx_queue.put_nowait((wire_frame, shore_weapon_serial_hardware_wire))
+                
+                watchdog.poke_watchdog('WEAPON_BUS_IN')
+            # ──────────────────────────────────────────────────────────────────────────
 
             # -- E. WATCHDOG SAFETY INTERLOCKS --
             compliance_status = watchdog.get_watchdog_diagnostics()
@@ -347,7 +279,6 @@ def bootstrap_system():
 
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] Intercepted manual shutdown request. Suspending communication pipes...")
-        shore_logger.stop_logger_services() # Flush remaining rows and secure locks on disk
         flag_logger.stop_logger_services() 
         bilge_logger.stop_logging_services() 
         mission_logger.stop_logging_services() 
