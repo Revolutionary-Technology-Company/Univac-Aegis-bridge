@@ -190,3 +190,13 @@ The co-processor outputs high-fidelity hydrodynamic tracking metrics as an outbo
 * `predicted_keel_clearance_meters`: Computed true distance between the bottom of the hull and the seabed floor, adjusting for static draft + cargo load + active hull squat speed variations.
 * `structural_fatigue_load_percentage`: Stress analysis checking combined bending and gyroscopic moments acting across the physical shaft rings.
 * `anchor_lock_state`: Live status string of the anchor loop machine (`"RELEASED"`, `"RETRACTING"`, or `"LOCKED_EMERGENCY"`).
+
+### E. Endpoint 5: Navy Shore Combat Release Authorization (`shore_combat_release`)
+Required to unlock remote ship-to-shore fire capabilities. When the ship hooks into a base network link, the land-based weapons servos track the ship's targeting vectors instantly, but firing triggers remain safely locked. Operator stations must pass this authenticated boolean command payload to authorize the shore weapons to fire using the ship's telemetry.
+
+* Payload Example:
+  {"msg_type": "shore_combat_release", "navy_combat_release_cleared": true}
+* Field Specifications:
+  * msg_type: String. Must read exactly "shore_combat_release".
+  * navy_combat_release_cleared: Boolean. Firing clearance token flag. Set to true to authorize land-based batteries or coastal VLS cells to fire using the ship's memory-buffered data tracks. Set to false to enforce local base safe holds.
+
