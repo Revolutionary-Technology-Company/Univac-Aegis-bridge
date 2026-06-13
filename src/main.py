@@ -40,6 +40,42 @@ from control_core.base_infrastructure_core import UnivacBaseInfrastructureCore
 
 # Initialize the central shore facilities utility router engine
 base_utility_manager = UnivacBaseInfrastructureCore()
+shore_link_connected = live_telemetry.get('shore_power_cable_attached', False)
+# ... Thread-safe ingestion of sensor telemetry and network targets ...
+            
+# Read connection line status string from the telemetry router
+shore_link_connected = live_telemetry.get('shore_power_cable_attached', False)
+            
+# ──────────────────────────────────────────────────────────────────────────
+# NEW INJECTION: SHORE HANDSHAKE ADAPTIVE VERIFICATION TRIGGER
+# ──────────────────────────────────────────────────────────────────────────
+# AS SOON AS THE SHIP CAN CONNECT TO SHORE, IT locks crane/pump overrides,
+# triggers an instantaneous re-audit, and validates the base infrastructure.
+if shore_link_connected and not previous_loop_shore_state:
+    print("\n[SHORE_LINK] Umbilical link connected. Commencing immediate infrastructure audit...")
+                
+    # Force emergency safe hold on base systems while checking logs
+    base_utility_manager.set_base_routing_authority("UNIVAC_DIRECT")
+                
+    # Execute the validation suite over the updated directory context
+    shore_validator = AutomatedBootVerificationSuite(log_directory="logs")
+    if not shore_validator.execute_full_suite():
+        print("[CRITICAL_SHUTDOWN] Shore facility ledger failed integrity test. Lockout engaged!")
+        # Lock cranes and drop motor torque to prevent unsafe base interactions
+        actuator_commands['command_motor_torque_nm'] = 0.0
+        active_targets['requested_base_authority_mode'] = "UNIVAC_DIRECT"
+    else:
+        print("[SHORE_LINK] Shore data logs verified. Authority transitions unlocked.")
+            
+# Cache active state to map future transition steps
+previous_loop_shore_state = shore_link_connected
+# ──────────────────────────────────────────────────────────────────────────
+
+# Continue executing standard infrastructure update steps...
+resolved_facility_states = base_utility_manager.execute_infrastructure_update_step(
+    network_commands=active_targets,
+    legacy_mainframe_inputs=mock_mainframe_inputs
+)
 
 # ------------------------------------------------------------------------------
 # AUDIT FIX 1: ASYNCHRONOUS TRANSMISSION QUEUE (9600-Baud Trap Resolution)
