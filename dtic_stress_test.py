@@ -47,7 +47,7 @@ def packet_blaster_worker(worker_id, ip, port, byte_buffer, num_packets):
 
 if __name__ == '__main__':
     TARGET_IP = "127.0.0.1"
-    TARGET_PORT = 5005
+    TARGET_PORT = 5006
     TOTAL_PACKETS = 10_000_000 
     CORRUPTION_RATE = 50_000 
     CORES = multiprocessing.cpu_count()
