@@ -50,6 +50,7 @@ class FlagHalyardFaultLogger:
                     writer = csv.writer(f)
                     writer.writerow(self.csv_headers)
                 print(f"[LOGGER] Flag hardware compliance ledger deployed at: {self.log_file_path}")
+                watchdog.log_write_success('FLAG_HALYARD_AUDIT', self.log_queue.qsize())
             except IOError as e:
                 print(f"[LOGGER_ERROR] Storage directory write restriction caught during boot: {e}")
 
@@ -104,6 +105,7 @@ class FlagHalyardFaultLogger:
                 with open(self.log_file_path, mode='a', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerow(final_row)
+                    watchdog.log_write_success('FLAG_HALYARD_AUDIT', self.log_queue.qsize())
                     
                 # Cache current signature hash deep into memory to link the next line
                 self.previous_row_hash = current_sha256
