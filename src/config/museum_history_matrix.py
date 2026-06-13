@@ -863,3 +863,37 @@ def equation_bracket_bolt_stress(applied_force_n: float, torque_nm: float, threa
     total_tensile_force = applied_force_n + preload_force
     bolt_area = math.pi * ((thread_diameter_m / 2.0) ** 2)
     return total_tensile_force / max(1e-6, bolt_area)
+
+# File Name: museum_history_matrix_diagnostics.py
+# Location: /src/config/
+# Subsystem: Advanced Diagnostics, Failure Detection, and Biomechanical Equations Array
+
+import math
+
+# DETECTIVE: Repeat Pattern Correlation Matrix (Cosine Similarity Base)
+# Tracks whether incoming serial line noise is repeating by checking historical vectors
+def equation_detective_pattern_correlation(vector_a: list, vector_b: list) -> float:
+    if len(vector_a) != len(vector_b) or len(vector_a) == 0:
+        return 0.0
+    dot_product = sum(p * q for p, q in zip(vector_a, vector_b))
+    norm_a = math.sqrt(sum(p ** 2 for p in vector_a))
+    norm_b = math.sqrt(sum(q ** 2 for q in vector_b))
+    denom = norm_a * norm_b
+    if denom <= 0.001: 
+        return 0.0
+    return dot_product / denom
+
+# BODY VIBRATION: Structural Deck Resonant Frequency Vector
+# Calculates the native mechanical vibration frequency (f) of a hull or platform section
+def equation_body_vibration_resonance(stiffness_n_m: float, structural_mass_kg: float) -> float:
+    if structural_mass_kg <= 0.1 or stiffness_n_m <= 0.0:
+        return 0.0
+    # Standard mechanical vibration law: f = (1 / 2*pi) * sqrt(k / m)
+    return (1.0 / (2.0 * math.pi)) * math.sqrt(stiffness_n_m / structural_mass_kg)
+
+# FREQUENCY ADAPT: Active Hydraulic Dampening Phase Cancellation
+# Computes the required actuator counter-force to neutralize deck vibration amplitudes
+def equation_adaptive_frequency_cancellation(amplitude_m: float, phase_rad: float, frequency_hz: float, elapsed_time: float) -> float:
+    # Generates a mirror wave 180 degrees (pi radians) out of phase to cancel out the vibration
+    cancellation_phase = phase_rad + math.pi
+    return amplitude_m * math.sin(2.0 * math.pi * frequency_hz * elapsed_time + cancellation_phase)
