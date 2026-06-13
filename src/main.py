@@ -50,6 +50,30 @@ univac_hal.clear_interlocks_for_model(target_computer_profile)
 from control_core.led_vacuum_emulator import LedVacuumLogicEmulator
 led_valve_core = LedVacuumLogicEmulator(amplification_factor_mu=25.0)
 
+# 1. Instantiate the hexadecimal signal spectrum modulator during system bootstrap
+from network_layer.hex_spectrum_modulator import HexadecimalSpectrumModulator
+hex_spectrum_engine = HexadecimalSpectrumModulator(baseline_voltage_range=4) # 4V Matrix
+
+# 2. Inside your hard-deterministic 50Hz while True: loop context:
+# Fetch the simulated light output from your optoelectronic LED vacuum triode
+live_photon_flux = valve_telemetry_snapshot.get('simulated_led_photon_flux_lumen', 0.0)
+
+# Modulate the continuous light spectrum into standard hexadecimal fragments (50Hz)
+# This handles the digital crest and trough allocations over your shared memory registers
+hex_spectrum_packet = hex_spectrum_engine.modulate_flux_to_hex_spectrum(live_photon_flux)
+
+# 3. If a signal crest saturation alert triggers, automatically engage safety filters
+if hex_spectrum_packet['signal_saturation_alert']:
+    # Cap steering rates to damp out high-frequency sensor signal spikes
+    actuator_commands['command_rudder_angle_deg'] = max(-15.0, min(15.0, actuator_commands['command_rudder_angle_deg']))
+
+# Append the hexadecimal snippets straight to your outbound network monitoring package
+actuator_commands['upstream_autonomy_telemetry']['Hex_Spectrum_Data'] = hex_spectrum_packet
+
+# Poke your safety hardware watchdog to confirm the digital signal data pipeline is active
+watchdog.poke_watchdog('MAIN_CORE_MATH')
+
+
 # 2. Inside your hard-deterministic 50Hz while True: loop context:
 # Ingest live grid voltage readings arriving off your data buses
 live_grid_potential_v = float(live_telemetry.get('joystick_analog_voltage_v', 0.0))
