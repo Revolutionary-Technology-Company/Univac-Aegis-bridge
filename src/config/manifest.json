@@ -1,0 +1,134 @@
+{
+    "system_manifest_metadata": {
+        "framework_architecture": "Hard-Deterministic Multi-Variable Marine Co-Processor",
+        "target_version": "2026.6.13",
+        "system_classification": "UNIVAC Replacement Bridge Matrix System",
+        "deployment_profile": "US Navy Museums Historical Restoration Project"
+    },
+    "hardware_abstraction_layer": {
+        "description": "Static serial port assignments mapped to physical RS-422 differential copper lines and RS-232 interfaces.",
+        "serial_ports": {
+            "true_heading_compass": {
+                "linux_handle": "/dev/ttyUSB0",
+                "windows_handle": "COM3",
+                "baud_rate": 4800,
+                "data_bits": 8,
+                "parity": "NONE",
+                "stop_bits": 1,
+                "protocol_standard": "NMEA-0183 ($HEHDT)",
+                "watchdog_id": "NMEA_SERIAL_IN"
+            },
+            "echo_sounder_depth": {
+                "linux_handle": "/dev/ttyUSB1",
+                "windows_handle": "COM4",
+                "baud_rate": 4800,
+                "data_bits": 8,
+                "parity": "NONE",
+                "stop_bits": 1,
+                "protocol_standard": "NMEA-0183 ($SDDBT)",
+                "watchdog_id": "NMEA_SERIAL_IN"
+            },
+            "gun_ring_encoder_bus": {
+                "linux_handle": "/dev/ttyUSB2",
+                "windows_handle": "COM5",
+                "baud_rate": 9600,
+                "data_bits": 8,
+                "parity": "NONE",
+                "stop_bits": 1,
+                "protocol_standard": "Proprietary Bus ($PMK45)",
+                "watchdog_id": "WEAPON_BUS_IN"
+            },
+            "manual_servo_joystick": {
+                "linux_handle": "/dev/ttyUSB3",
+                "windows_handle": "COM6",
+                "baud_rate": 115200,
+                "data_bits": 8,
+                "parity": "NONE",
+                "stop_bits": 1,
+                "protocol_standard": "RS-232 Standard Analog Raw",
+                "watchdog_id": "MAIN_CORE_MATH"
+            },
+            "machinery_auxiliaries_bus": {
+                "linux_handle": "/dev/ttyUSB4",
+                "windows_handle": "COM7",
+                "baud_rate": 9600,
+                "data_bits": 8,
+                "parity": "NONE",
+                "stop_bits": 1,
+                "protocol_standard": "Proprietary Valve/Winch Loop ($PUNVCBLG, $PUNVCFLG, $PUNVCANC, $PUNVCFAC)",
+                "watchdog_id": "MAIN_CORE_MATH"
+            }
+        }
+    },
+    "network_socket_topology": {
+        "description": "Ethernet TCP/UDP port mapping boundaries isolating high-frequency telemetry from remote workstation input queues.",
+        "interfaces": {
+            "json_tcp_command_listener": {
+                "binding_ip": "0.0.0.0",
+                "port_number": 7000,
+                "protocol": "TCP",
+                "format": "Structured UTF-8 minified JSON streams (\\n terminated)",
+                "watchdog_id": "TCP_COMMAND_IN"
+            },
+            "actuator_udp_datagram_dispatch": {
+                "target_plc_ip": "192.168.1.50",
+                "port_number": 5005,
+                "protocol": "UDP",
+                "format": "Industrial Proprietary NMEA ASCII Strings",
+                "watchdog_id": "MAIN_CORE_MATH"
+            },
+            "local_telemetry_udp_ingest": {
+                "binding_ip": "0.0.0.0",
+                "port_number": 5006,
+                "protocol": "UDP",
+                "format": "Raw ASCII Acknowledgment Sentences ($PUNVCAK)",
+                "watchdog_id": "NMEA_SERIAL_IN"
+            }
+        }
+    },
+    "compliance_audit_ledger_registry": {
+        "description": "Cryptographically chained log file definitions verifying MARPOL, US Gov, and base infrastructure audit trails.",
+        "storage_directory": "logs",
+        "ledgers": {
+            "flag_halyard_audit": {
+                "file_prefix": "flag_halyard_audit",
+                "format": "CSV",
+                "tamper_proof": true,
+                "cryptography": "SHA-256 Block-Chained"
+            },
+            "marpol_bilge_audit": {
+                "file_prefix": "marpol_bilge_audit",
+                "format": "CSV",
+                "tamper_proof": true,
+                "cryptography": "SHA-256 Block-Chained"
+            },
+            "mission_telemetry": {
+                "file_prefix": "uss_univac_bridge",
+                "format": "CSV",
+                "tamper_proof": true,
+                "cryptography": "SHA-256 Block-Chained"
+            },
+            "shore_facility_audit": {
+                "file_prefix": "shore_facility_audit",
+                "format": "CSV",
+                "tamper_proof": true,
+                "cryptography": "SHA-256 Block-Chained"
+            },
+            "shore_facility_live_state": {
+                "file_prefix": "shore_facility_live_state",
+                "format": "JSON",
+                "tamper_proof": false,
+                "cryptography": "None (Atomic Overwrite Live Snapshot)"
+            }
+        }
+    },
+    "watchdog_timing_constraints": {
+        "description": "Strict execution limits and thread check window ceiling bounds enforced by multi-ledger watchdogs.",
+        "thresholds": {
+            "critical_timeout_seconds": 1.5,
+            "maximum_buffer_queue_depth": 500,
+            "loop_check_rate_hz": 10.0,
+            "emergency_failsafe_torque_nm": 0.0
+        }
+    }
+}
