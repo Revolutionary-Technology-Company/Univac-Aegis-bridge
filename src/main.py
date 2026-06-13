@@ -308,7 +308,30 @@ def bootstrap_system():
         # Pull safe snapshots of active telemetry fields
         current_telemetry_snapshot = router.get_synchronized_telemetry()
         current_targets_snapshot = command_server.get_latest_targets()
-        
+
+        # ... Read raw metrics integers arriving from the network router ...
+        # Extract raw unparsed data word originating off the Cray parallel interface
+        raw_cray_gray_bus_word = int(live_telemetry.get('raw_cray_gray_word', "0x00"), 16)
+            
+        # Unpack the Gray code bitmask instantly inside the thread execution block
+        # This ensures no lag hits your primary weapons tracking loops
+        decoded_cray_metrics = cray_bus_decoder.decode_cray_gray_word(
+            raw_gray_word=raw_cray_gray_bus_word,
+            bits_resolution=12 # Replicating a standard 12-bit synchro-resolver scale
+        )
+            
+        # Map the clean, translated physical angles straight into your active targets
+        live_telemetry['cray_shaft_angle_deg'] = decoded_cray_metrics['calibrated_shaft_angle_deg']
+            
+        # Execute the core 75-feature multi-variable calculation loop step
+        actuator_commands = engine.execute_bridge_loop(active_targets, live_telemetry, dt)
+            
+        # Append decoded Gray-code parameters to the outbound network monitoring package
+        actuator_commands['upstream_autonomy_telemetry']['Cray_Bus_Status'] = decoded_cray_metrics
+            
+        # Poke your safety watchdog to confirm the data pipeline is active and healthy
+        watchdog.poke_watchdog('MAIN_CORE_MATH')
+
         # Process the 15-node cognitive and resonance calculations independently
         calculated_results = cognitive_plant.process_cognitive_step(
             live_telemetry=current_telemetry_snapshot,
