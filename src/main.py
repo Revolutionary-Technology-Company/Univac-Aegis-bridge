@@ -28,6 +28,10 @@ from control_core.anchor_interlock_subroutine import AutonomousAnchorInterlockSu
 anchor_lock_manager = AutonomousAnchorInterlockSubroutine()
 from network_layer.hardware_watchdog import AsynchronousHardwareWatchdog
 
+from network_layer.multi_ledger_watchdog import MultiLedgerHardwareWatchdog
+watchdog = MultiLedgerHardwareWatchdog(write_timeout_sec=1.5, log_directory="logs")
+watchdog.start_watchdog()
+
 from control_core.bilge_authority_router import BilgeControlAuthorityRouter
 from control_core.flag_changer_subroutine import AutomaticFlagChangerSubroutine
 from network_layer.flag_fault_logger import FlagHalyardFaultLogger
@@ -193,6 +197,21 @@ def bootstrap_system():
         while True:
             start_cycle_time = time.time()
             
+            actuator_commands = engine.execute_bridge_loop(active_targets, live_telemetry, dt)
+
+            # Fetch current diagnostic status directly from the multi-ledger watchdog
+            compliance_status = watchdog.get_watchdog_diagnostics()
+
+            if compliance_status['watchdog_system_faulted']:
+            # HARD REGULATORY INTERLOCK: If an audit file hangs, force the vehicle to a safe state
+            actuator_commands['command_motor_torque_nm'] = 0.0
+            print(f"[REGULATORY_ABORT] Propulsion secured. Dead logger detected: {compliance_status['watchdog_tripped_ledgers']}")
+    
+            # Flash a full red warning box across the operator terminal screen
+            with app.data_lock:
+            app.system_telemetry['flag_winch_fault_active'] = True
+            app.system_telemetry['active_flag_state'] = "AUDIT_LOG_FAIL"
+        
             # ... Tri-State Router resolves final actuator choices above ...
             
             # Inject data snapshot metrics straight into the memory queuing array (50Hz)
