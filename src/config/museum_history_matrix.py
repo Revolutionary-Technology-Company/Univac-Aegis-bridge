@@ -827,3 +827,39 @@ def equation_tactical_risk_index(range_m: float, closing_speed_ms: float, jammin
     # Higher jamming and faster closing speeds exponentially increase the calculated risk score
     raw_score = (50.0 / time_to_impact) + (1.5 * jamming_intensity_db)
     return 1.0 / (1.0 + math.exp(-0.05 * raw_score)) # Normalized between 0.0 and 1.0
+
+# File Name: museum_history_matrix_auxiliary.py
+# Location: /src/config/
+# Subsystem: Advanced Auxiliary Systems Physics & Fluid Equations Array
+
+import math
+
+# 241. ASTRAL PHYSICS: Relativistic Cosmic Ray Particle Energy Vector
+def equation_astral_particle_energy(rest_mass_kg: float, velocity_ms: float) -> float:
+    c_speed = 299792458.0
+    if velocity_ms >= c_speed: return rest_mass_kg * (c_speed ** 2)
+    # Standard Einsteinian relativistic total energy translation model: E = gamma * m_0 * c^2
+    gamma = 1.0 / math.sqrt(1.0 - (velocity_ms ** 2) / (c_speed ** 2))
+    return gamma * rest_mass_kg * (c_speed ** 2)
+
+# 243. OUT OF WATER: Fast Hydrofoil Strut Freeboard Lift Disruption
+def equation_hydrofoil_air_ingress_lift(base_lift_n: float, submerged_depth_m: float, strut_length_m: float) -> float:
+    if strut_length_m <= 0.01: return 0.0
+    submergence_ratio = max(0.0, min(1.0, submerged_depth_m / strut_length_m))
+    # Proactively calculates lift loss if the foil breaches the surface layer and draws in air
+    return base_lift_n * (submergence_ratio ** 2)
+
+# 245. TRIGHT CABLE: High-Tension Wire Rope Structural Stretch (Hooke's Law)
+def equation_cable_tension_stretch(tension_newtons: float, length_m: float, area_m2: float, modulus_pa: float) -> float:
+    denom = area_m2 * modulus_pa
+    if denom <= 0.1: return length_m * 0.05
+    # Calculates physical elongation: delta_L = (F * L) / (A * E)
+    return (tension_newtons * length_m) / denom
+
+# 250. BRACKET MOUNTING: Bolt Joint Tensile Preload Stress Limit
+def equation_bracket_bolt_stress(applied_force_n: float, torque_nm: float, thread_diameter_m: float) -> float:
+    # Estimate tensile preload force from bolt tightening torque: F_preload = T / (0.2 * d)
+    preload_force = torque_nm / (0.2 * max(0.001, thread_diameter_m))
+    total_tensile_force = applied_force_n + preload_force
+    bolt_area = math.pi * ((thread_diameter_m / 2.0) ** 2)
+    return total_tensile_force / max(1e-6, bolt_area)
