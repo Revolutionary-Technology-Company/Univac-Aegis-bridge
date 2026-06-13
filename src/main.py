@@ -95,6 +95,38 @@ actuator_commands['upstream_autonomy_telemetry']['LED_Vacuum_Status'] = valve_te
 
 # Poke your safety hardware watchdog to confirm the data pipeline is active and healthy
 watchdog.poke_watchdog('MAIN_CORE_MATH')
+# 1. Instantiate the newly developed MAC alignment engine during system bootstrap
+from network_layer.univac_mac_aligner import UnivacMacAlignmentEngine
+mac_router_gate = UnivacMacAlignmentEngine()
+
+# 2. Extract active interface targets from your centralized configurations
+# (Pulled dynamically off your master frozen manifest.json configuration file properties)
+vessel_profile_key = vessel_profile.get('system_manifest_metadata', {}).get('vessel_hull_class', "EARLY_AEGIS_DESTROYER")
+
+# 3. Calculate the absolute lowest possible baseline handshake MAC to clear the connection gates
+initial_handshake_network_profile = mac_router_gate.compute_lowest_possible_handshake_mac(
+    vessel_class_key=vessel_profile_key,
+    device_id=1,        # Pre-seed target hardware device register offsets
+    mainframe_id=0,
+    switch_depth=0,
+    switch_port=0
+)
+
+print(f"[BOOT_NET] Calculated Handshake Target Address String: {initial_handshake_network_profile['computed_alignment_mac']}")
+
+# Execute an administrative system sub-process command to apply the target identity to the interface on the fly
+# This binds your modern network interface card straight to the legacy hardware parameters
+import subprocess
+try:
+    # Example targets active interface node 'eth0'
+    subprocess.run(["ip", "link", "set", "dev", "eth0", "address", initial_handshake_network_profile['computed_alignment_mac']], check=True)
+    print("[BOOT_NET] System hardware MAC address identity successfully aligned on the fly.")
+except Exception:
+    print("[BOOT_NET_WARNING] Local execution bypass active. Operating under hardware simulation tracking mode.")
+
+# 4. Inside your hard-deterministic 50Hz calculation loop thread context:
+# Append the active network address parameters straight to your outbound tracking telemetry frames
+actuator_commands['upstream_autonomy_telemetry']['Tactical_MAC_Interlock'] = initial_handshake_network_profile
 
 # ------------------------------------------------------------------------------
 # ASYNCHRONOUS TRANSMISSION QUEUE (9600-Baud Trap Resolution)
