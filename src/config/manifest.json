@@ -3,7 +3,48 @@
         "framework_architecture": "Hard-Deterministic Multi-Variable Marine Co-Processor",
         "target_version": "2026.6.13",
         "system_classification": "UNIVAC Replacement Bridge Matrix System",
-        "deployment_profile": "US Navy Museums Historical Restoration Project"
+        "deployment_profile": "US Navy Museums Historical Restoration Project",
+        "vessel_hull_class": "EARLY_AEGIS_DESTROYER"
+    },
+    "tactical_network_identity_matrix": {
+        "description": "Organizational Unique Identifier (OUI) ranges mapping specific historical hull generations and dynamic VIN-style MAC identity tracking rules.",
+        "class_specific_oui_registry": {
+            "early_aegis_cruiser": {
+                "oui_prefix": "00:00:A3",
+                "mainframe_architecture": "AN/UYK-7 Multi-Processor (32-Bit)",
+                "historical_hull_examples": ["CG-47", "CG-48", "CG-49", "CG-50", "CG-51"]
+            },
+            "early_aegis_destroyer": {
+                "oui_prefix": "00:01:4A",
+                "mainframe_architecture": "AN/UYK-43 Shipboard Standard (32-Bit)",
+                "historical_hull_examples": ["DDG-51", "DDG-52", "DDG-53", "DDG-54"]
+            },
+            "enterprise_carrier": {
+                "oui_prefix": "00:1D:6E",
+                "mainframe_architecture": "UNIVAC 1108 / AN/USQ-20B Platforms (36-Bit / 30-Bit)",
+                "historical_hull_examples": ["CVN-65", "CVN-68", "CVN-69"]
+            },
+            "pre_aegis_combattant": {
+                "oui_prefix": "00:50:2A",
+                "mainframe_architecture": "CP-642B Legacy Tactical Computer (30-Bit)",
+                "historical_hull_examples": ["DDG-2", "CG-16", "CG-26"]
+            },
+            "pre_aegis_auxiliary": {
+                "oui_prefix": "00:D0:6B",
+                "mainframe_architecture": "UNIVAC 490 / 494 Real-Time Systems (30-Bit)",
+                "historical_hull_examples": ["AD-37", "AS-33", "Shore Stations"]
+            }
+        },
+        "hardware_pin_matrix_constraints": {
+            "maximum_peripheral_devices_per_mainframe": 15,
+            "maximum_usable_switch_ports": 254,
+            "switch_port_range_hex": ["0x01", "0xFE"],
+            "bit_allocation_octet_6": {
+                "bit_0": "Peripheral Device Index Register",
+                "bit_1": "Target Mainframe Processor Register",
+                "bit_2": "Verification Latch Bit (Must duplicate Bit 0 to clear data path locks)"
+            }
+        }
     },
     "hardware_abstraction_layer": {
         "description": "Static serial port assignments mapped to physical RS-422 differential copper lines and RS-232 interfaces.",
@@ -51,22 +92,12 @@
             "machinery_auxiliaries_bus": {
                 "linux_handle": "/dev/ttyUSB4",
                 "windows_handle": "COM7",
-                 "baud_rate": 9600,
+                "baud_rate": 9600,
                 "data_bits": 8,
                 "parity": "NONE",
                 "stop_bits": 1,
                 "protocol_standard": "Proprietary Valve/Winch/Facility Loop ($PUNVCBLG, $PUNVCFLG, $PUNVCANC, $PUNVCFAC, $PUNVCUTL)",
                 "watchdog_id": "MAIN_CORE_MATH"
-            },
-            "industrial_plc_bus": {
-                "linux_handle": "/dev/ttyUSB6",
-                "windows_handle": "COM9",
-                "baud_rate": 19200,
-                "data_bits": 8,
-                "parity": "NONE",
-                "stop_bits": 1,
-                "protocol_standard": "Proprietary Discrete 24V PLC Matrix ($PUNVCDIA)",
-                "watchdog_id": "NMEA_SERIAL_IN"
             },
             "security_compliance_bus": {
                 "linux_handle": "/dev/ttyUSB5",
@@ -77,8 +108,17 @@
                 "stop_bits": 1,
                 "protocol_standard": "Proprietary Security/Anti-Theft Matrix ($PUNVCDIA)",
                 "watchdog_id": "NMEA_SERIAL_IN"
+            },
+            "industrial_plc_bus": {
+                "linux_handle": "/dev/ttyUSB6",
+                "windows_handle": "COM9",
+                "baud_rate": 19200,
+                "data_bits": 8,
+                "parity": "NONE",
+                "stop_bits": 1,
+                "protocol_standard": "Proprietary Discrete 24V PLC Matrix ($PUNVCDIA)",
+                "watchdog_id": "NMEA_SERIAL_IN"
             }
-
         }
     },
     "network_socket_topology": {
