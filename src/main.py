@@ -190,6 +190,32 @@ def bootstrap_system():
         print("[WARNING] Hardware serial ports not found. Running in simulation/headless mode.")
         steering_serial_hardware_wire, weapon_serial_hardware_wire, machinery_bus_serial_port, shore_weapon_serial_hardware_wire = None, None, None, None
 
+            # ... Combined torque and steering control laws execute above ...
+            
+            # Extract calculated rudder command integer value
+            target_rudder_integer = int(actuator_commands['command_rudder_angle_deg'] * 100)
+            
+            # Convert system integers back into big-endian byte blocks matching native limits
+            native_wire_bytes, active_proto_string = univac_hal.unpack_64bit_to_native_bytes(target_rudder_integer)
+            
+            # Write the formatted byte string down the active RS-422 copper communication port
+            try:
+                machinery_bus_serial_port.write(native_wire_bytes)
+            except NameError:
+                pass
+
+        # ... Read raw metrics strings from your serial or network input lines ...
+
+        # Example: Ingest an integer target bearing word read off the legacy data bus
+        raw_unmasked_bearing_word = int(live_telemetry.get('raw_bus_word_hex', "0x0000"), 16)
+
+        # Sanitize the word frame instantly through the dynamic bit-width mask matrix
+        # This ensures 16, 18, 30, 32, and 36-bit words all align perfectly to 64-bit software variables
+        sanitized_target_word = univac_hal.pack_native_word_to_64bit(raw_unmasked_bearing_word)
+    
+        # Run calculations safely now that bit boundaries are perfectly matched
+         actuator_commands = engine.execute_bridge_loop(active_targets, live_telemetry, dt)
+
     print("\n[BOOT] System initialization complete. Entering 50Hz real-time control matrix loop.")
     print("-" * 80)
 
