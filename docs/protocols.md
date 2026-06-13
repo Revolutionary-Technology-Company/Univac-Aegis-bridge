@@ -241,3 +241,16 @@ Checksum = XOR sum of ord(char) for all characters in the payload body.
   * Fault_Mask: 4-Digit Hexadecimal string. Aerospace sensor bus integrity register (0000 = Nominal).
 * Example Binary Frame:
   $AVNC,47.6085,-122.3315,1240.0,1495.0,122.5,22.1,0000*3D\r\n
+
+  ## 6.D. Tactical VIN-Style Network MAC Address Interlock Mapping Matrix
+* Source Subsystem: Dynamic Mainframe VIN-Style MAC Address Alignment & Actuator Router Engine (univac_mac_aligner.py)
+* Target Hardware Link: High-Speed Ethernet Switch Board / Tactical Network Interface Card
+* Transmission Cadence: Initial system handshake execution pass upon boot, updating dynamically on the fly during switch routing shifts.
+* Bit-Width Mapping Configuration Parameters:
+  * Octets 1-3 (OUI Prefix): Specifies core hull class generation criteria (00:00:A3 = Cruiser, 00:01:4A = Destroyer, 00:1D:6E = Carrier).
+  * Octet 4 (Switch Depth): Hexadecimal scalar index tracking stacked network switch levels. Range: 00 to FF.
+  * Octet 5 (Switch Port): Discrete physical routing path selection identifier. Range: 01 to FE (254 usable allocations).
+  * Octet 6 (Hardware Latch Register Bitmask):
+    - Bit 0: Target Peripheral Device Index (0 to 14 range bounds).
+    - Bit 1: Target Mainframe Processor Index (0 to 3 array bounds).
+    - Bit 2: Verification Latch Bit. Must evaluate to exactly duplicate Bit 0 to clear security interlocks.
