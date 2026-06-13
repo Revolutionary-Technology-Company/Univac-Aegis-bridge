@@ -36,6 +36,10 @@ from network_layer.bilge_audit_logger import BilgeEnvironmentalAuditLogger
 from network_layer.aviation_telemetry_bridge import AviationTelemetryBridgeNode
 # Initialize the Basic Aviation Knowledge network tracking link bridge
 aviation_bridge = AviationTelemetryBridgeNode(prefix_id="AVNC")
+from control_core.base_infrastructure_core import UnivacBaseInfrastructureCore
+
+# Initialize the central shore facilities utility router engine
+base_utility_manager = UnivacBaseInfrastructureCore()
 
 # ------------------------------------------------------------------------------
 # AUDIT FIX 1: ASYNCHRONOUS TRANSMISSION QUEUE (9600-Baud Trap Resolution)
@@ -214,6 +218,41 @@ def bootstrap_system():
             for char in bilge_payload: bilge_cs ^= ord(char)
             bilge_packet = f"${bilge_payload}*{bilge_cs:02X}\r\n".encode('ascii')
             tx_queue.put_nowait((bilge_packet, machinery_bus_serial_port))
+
+            # ... Weapons balancing, anchor interlocks, and bilge loops run above ...
+
+            # A. Check for on-the-fly facility authority shifts over your secure TCP lines
+            # Expects a JSON property: {"requested_base_authority_mode": "NETWORK_OVERRIDE"}
+            requested_base_mode = active_targets.get('requested_base_authority_mode')
+            if requested_base_mode:
+                base_utility_manager.set_base_routing_authority(requested_base_mode)
+
+            # B. Read current utility parameters arriving off your data buses
+            # (Rely on previous serial parsing libraries or extract from central router snapshot caches)
+            mock_mainframe_inputs = {'crane_hoist_power_pct': 0.0, 'substation_breaker_relay': 1, 'sump_pump_override_relay': 0, 'hvac_dehumidifier_setpoint': 45.0}
+            
+            # C. Map resolved actuator selections through the Tri-State Base Router
+            resolved_facility_states = base_utility_manager.execute_infrastructure_update_step(
+                network_commands=active_targets,       # Driven by remote workstations over TCP
+                legacy_mainframe_inputs=mock_mainframe_inputs
+            )
+            act_map = resolved_facility_states['dispatched_actuator_cache']
+
+            # D. Serialize parameters into a clean proprietary NMEA string packet for the shore PLCs
+            fac_payload = f"PUNVCFAC,{act_map['crane_hoist_power_pct']:.1f},{act_map['crane_hook_lock_solenoid']},{act_map['blast_door_actuator_state']},{act_map['substation_breaker_relay']},{act_map['sump_pump_override_relay']},{act_map['hvac_dehumidifier_setpoint']:.1f},{act_map['climate_heating_valve_open']}"
+            
+            # Calculate standard XOR checksum and write directly to your RS-422 machinery bus wire
+            fac_cs = 0
+            for char in fac_payload: fac_cs ^= ord(char)
+            fac_packet = f"${fac_payload}*{fac_cs:02X}\r\n".encode('ascii')
+            
+            try:
+                machinery_bus_serial_port.write(fac_packet)
+            except NameError:
+                pass
+
+            # E. Append facility diagnostics parameters to your outbound network tracking structures
+            actuator_commands['upstream_autonomy_telemetry']['Base_Infrastructure_Status'] = resolved_facility_states
 
             # 3. Flag Changer
             flag_actuation_commands = flag_manager.evaluate_flag_logic_matrix(
