@@ -136,7 +136,12 @@ def bootstrap_system():
     try:
         while True:
             start_cycle_time = time.time()
+            # ... Base Infrastructure Core multiplexes active facility selections above ...
             
+            # Inject data snapshot metrics straight into the memory queuing array (50Hz)
+            # This handles both CSV blockchain logging and JSON live state overwrites automatically
+            shore_logger.capture_facility_state_snapshot(resolved_facility_states)
+
             # -- A. INGESTION & SENSOR PARSING --
             active_targets = command_server.get_latest_targets()
             live_telemetry = router.get_synchronized_telemetry()
