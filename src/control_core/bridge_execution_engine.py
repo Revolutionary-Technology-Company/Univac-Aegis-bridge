@@ -2,7 +2,7 @@
 # File Name: bridge_execution_engine.py
 # Location: /src/control_core/
 # Subsystem: Unified Coordinated Propulsion & Steering Control Matrix
-from src.control_core.inertial_dead_reckoning import InertialDeadReckoning
+
 import math
 import numpy as np
 import time
@@ -18,6 +18,7 @@ try:
     from src.control_core.hydro_coordinated_predictor import HydroCoordinatedPredictor
     from src.control_core.asymmetric_trim_subroutine import AsymmetricRudderTrimSubroutine
     from src.config.weapon_balance_matrix import NavalWeaponsBalanceMatrix
+    from src.control_core.inertial_dead_reckoning import InertialDeadReckoning
 except ImportError as e:
     print(f"[WARNING] Sub-module import failed. Ensure /src/ directory is accessible. Error: {e}")
 
@@ -25,8 +26,8 @@ class UnivacReplacementBridgeEngine:
     """
     MASTER EXECUTION ENGINE: UNIVAC REPLACEMENT BRIDGE
     Synthesizes Aegis/Sea Machines target requests with physical hull limits.
-    Incorporates all 75 features, including propeller diameter shear protection,
-    rudder-length roll coupling, AR wave forecasting, and weapon cross-coupling.
+    Incorporates all 75 features, including DR Navigation, Propeller D^5 Shear Protection,
+    Rudder-Length Roll Coupling, AR Wave Forecasting, and Weapon Cross-Coupling.
     """
     def __init__(self, vessel_profile: Dict[str, float]):
         # 1. Exact Physical Vessel Dimensions (Crucial for Hydrodynamic Gating)
@@ -79,6 +80,10 @@ class UnivacReplacementBridgeEngine:
         self.max_accel_lim = 50.0  # Max structural acceleration limit (RPM/s^2)
         self.current_ramp_rpm = 0.0
         self.current_rpm_state = 0.0
+        
+        # Dead Reckoning Geodetic Cache
+        self.last_known_lat_rad = 0.0
+        self.last_known_lon_rad = 0.0
 
     # ==============================================================================
     # INTERNAL FEATURE ARRAYS: DETERMINISTIC MATH
@@ -168,15 +173,16 @@ class UnivacReplacementBridgeEngine:
         current_rpm = telemetry.get('rpm', self.current_rpm_state)
         current_omega = (current_rpm * 2.0 * math.pi) / 60.0
         speed_ms = telemetry.get('speed_ms', 0.0)
-        heading_rad = telemetry.get('heading_rad', 0.0)
         gps_valid = telemetry.get('gps_valid', True)
+        heading_rad = telemetry.get('heading_rad', 0.0)
 
         # --- 0. SENSOR VALIDATION & INERTIAL DEAD RECKONING ---
         if gps_valid:
             self.last_known_lat_rad = telemetry.get('latitude_rad', self.last_known_lat_rad)
             self.last_known_lon_rad = telemetry.get('longitude_rad', self.last_known_lon_rad)
         else:
-            if self.subsystems_online and hasattr(self, 'dr_engine'):
+            # FIX 1: Prevent Null Island teleportation
+            if self.subsystems_online and hasattr(self, 'dr_engine') and self.last_known_lat_rad != 0.0:
                 new_lat, new_lon = self.dr_engine.feature_10_integrate_dr_position(
                     self.last_known_lat_rad, self.last_known_lon_rad, speed_ms, heading_rad, dt
                 )
@@ -236,10 +242,14 @@ class UnivacReplacementBridgeEngine:
         target_omega = (profiled_target_rpm * 2.0 * math.pi) / 60.0
         
         speed_error = target_omega - current_omega
-        self.integral_speed_error += speed_error * dt
-        
         base_torque = (220.0 * speed_error) + (10.0 * self.integral_speed_error)
         
+        # FIX 2: Feature 68 Integrator Windup Interlock
+        if abs(base_torque) < self.max_torque:
+            self.integral_speed_error += speed_error * dt
+            # Recalculate base_torque to include the new integration step safely
+            base_torque = (220.0 * speed_error) + (10.0 * self.integral_speed_error)
+
         # Feature 42: Proactively attenuate torque if wave ventilation occurs at the stern
         coordinated_torque = base_torque * beta_v
         
@@ -259,13 +269,16 @@ class UnivacReplacementBridgeEngine:
         
         combined_rudder_deg = math.degrees(delta_steering + delta_stabilization)
 
-        # Apply the newly unlocked Coriolis calculation
-        coriolis_trim = self.nav_mod.feature_14_coriolis_drift_compensation(telemetry['latitude'], speed_ms)
+        # Feature 14: Coriolis Force Compensation
+        coriolis_trim_deg = 0.0
+        if self.subsystems_online and 'latitude_rad' in telemetry:
+            if hasattr(self, 'dr_engine'):
+                coriolis_trim_deg = self.dr_engine.feature_14_navigational_coriolis_drift(
+                    speed_ms=speed_ms,
+                    latitude_rad=telemetry['latitude_rad']
+                )
 
-        # Add it to the final output
-        asymmetric_stabilized_rudder_deg = combined_rudder_deg + delta_trim_deg + coriolis_trim
-
-        asymmetric_stabilized_rudder_deg = combined_rudder_deg + delta_trim_deg
+        asymmetric_stabilized_rudder_deg = combined_rudder_deg + delta_trim_deg + coriolis_trim_deg
         
         # Feature 43: Clear out high-frequency wave-slap hydraulic oscillations
         notch_filtered_rudder = self._execute_feature_43_notch_filter(asymmetric_stabilized_rudder_deg, dt)
@@ -273,6 +286,9 @@ class UnivacReplacementBridgeEngine:
         # Feature 65: Apply Speed-Dependent Rudder Angle Saturation Cap
         rudder_cap = self.max_rudder_deg * math.exp(-0.015 * abs(current_omega))
         final_rudder_pos = max(-rudder_cap, min(rudder_cap, notch_filtered_rudder))
+
+        # FIX 3: State Divergence Correction - Synchronize the math to the clamped physical reality
+        self.notch_y1 = final_rudder_pos
 
         predicted_roll_moment = self._calculate_rudder_roll_moment(final_rudder_pos, speed_ms)
 
@@ -289,6 +305,10 @@ class UnivacReplacementBridgeEngine:
         # Compile interface packet structures
         upstream_autonomy_packet = {
             "UNIVAC_Water_Insight_Link": {
+                "dead_reckoning_active": not gps_valid,
+                "dead_reckoning_lat_rad": round(self.last_known_lat_rad, 6),
+                "dead_reckoning_lon_rad": round(self.last_known_lon_rad, 6),
+                "coriolis_drift_correction_deg": round(coriolis_trim_deg, 3),
                 "subsurface_ventilation_index": round(beta_v, 3),
                 "predicted_keel_clearance_meters": round(telemetry.get('depth', 50.0) - dynamic_draft, 2),
                 "structural_fatigue_load_percentage": round(structural_load_pct, 1),
@@ -324,16 +344,19 @@ if __name__ == "__main__":
     engine = UnivacReplacementBridgeEngine(vessel_config)
     
     # Testing combined stress profiles: Cruising at 500 RPM near a canal bank while 
-    # firing the Mk 92 gun system in rough shallow water.
+    # firing the Mk 92 gun system in rough shallow water with GPS jammed.
     telemetry_sample = {
+        'gps_valid': False,
+        'latitude_rad': 0.833, 'longitude_rad': -2.13, 
         'rpm': 500.0, 'depth': 7.8, 'speed_ms': 7.5, 'bow_sensor_meters': -1.9,
-        'yaw_rate_rads': 0.04, 'roll_angle_rad': 0.08, 'roll_rate_rads': 0.14,
+        'heading_rad': 1.57, 'yaw_rate_rads': 0.04, 'roll_angle_rad': 0.08, 'roll_rate_rads': 0.14,
         'distance_to_bank_meters': 14.5, 'rudder_deg': 5.0,
         'gun_azimuth_deg': 45.0, 'gun_elevation_deg': 10.0,
         'gun_azimuth_rate_rads': 0.1, 'gun_elevation_rate_rads': 0.05
     }
     target_sample = {'rpm': 550.0, 'target_yaw_rate': 0.15}
     
+    # Send the first command block loop
     commands = engine.execute_bridge_loop(target_sample, telemetry_sample, dt=0.1)
     
     print(f"Motor Torque Command:  {commands['command_motor_torque_nm']} Nm")
