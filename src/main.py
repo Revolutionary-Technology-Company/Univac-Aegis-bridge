@@ -29,7 +29,10 @@ from network_layer.weapon_async_parser import WeaponAsyncParserExtension
 from network_layer.weapon_serial_serializer import WeaponSerialOutputSerializer
 from network_layer.asymmetric_network_serializer import AsymmetricNetworkSerializer
 from network_layer.shore_weapon_serializer import ShoreWeaponSystemSerializer # NEW SHORE LINK
-
+# Expose the ATHENA ground guidance processor to the main server loop
+# Include the interactive space tracker node alongside production modules
+from .hostile_et_signal_node import DeepSpaceSignalNode
+from .athena_bridge_node import AthenaBridgeNode
 from network_layer.data_logger_node import AutomatedMissionDataLogger
 from network_layer.flag_fault_logger import FlagHalyardFaultLogger
 from network_layer.bilge_audit_logger import BilgeEnvironmentalAuditLogger
