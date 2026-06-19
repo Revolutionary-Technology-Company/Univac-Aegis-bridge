@@ -3,6 +3,11 @@
 
 #include <cstdint>
 #include <atomic>
+#ifndef TELETANK_DEFINITIVE_MAPPING_HPP
+#define TELETANK_DEFINITIVE_MAPPING_HPP
+
+#include <cstdint>
+#include <atomic>
 
 namespace TeletankCore {
 
@@ -74,6 +79,22 @@ namespace TeletankCore {
         std::atomic<float> lateral_g_force;        // Accelerometer
         std::atomic<float> tank_fluid_level_l;     // Ballast / Fuel / Chem level
         std::atomic<float> tank_fluid_level_r;     // Ballast / Fuel / Chem level
+        std::atomic<bool>  engine_running;          
+        std::atomic<float> chassis_pitch_deg;      
+        std::atomic<float> chassis_roll_deg;       
+        std::atomic<float> lateral_g_force;        
+
+        // --- EXPANDED ROVER ENVIRONMENTAL MODULES ---
+        std::atomic<float> ambient_humidity_pct;    // Relative humidity payload (0.0 to 100.0%)
+        std::atomic<float> ambient_temperature_c;   // Core atmospheric temperature in Celsius
+        std::atomic<float> barometric_pressure_hpa; // Atmospheric pressure in hectopascals
+        std::atomic<float> structural_shock_g;     // Impact/Vibration spike tracker (Peak-hold G-force)
+
+        // --- STREAMING MEDIA GATEWAYS (Fibre Channel Handlers) ---
+        // Pointers/handles to active hardware buffer streams passed via memory-mapped IO
+        std::atomic<uint64_t> camera_frame_buffer_ptr; // Live video feed raw buffer reference
+        std::atomic<uint64_t> mic_audio_capture_ptr;   // Live audio feed capture stream memory handle
+        std::atomic<uint32_t> speaker_output_frequency;// Command frequency byte routing to cabin speaker
     };
 
     /**
