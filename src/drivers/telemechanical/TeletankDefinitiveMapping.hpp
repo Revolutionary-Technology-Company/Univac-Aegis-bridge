@@ -52,10 +52,22 @@ namespace TeletankCore {
         // 3. OBSCURATION
         static constexpr uint32_t SMOKE_SCREEN_GEN   = 0x00080000; // Exhaust injection or canister drop
 
-        // 4. DEMOLITION (TT-26-Sh "Podryvnik")
-        // The "Sapper" tank carried a 200-700kg armored bomb box.
-        static constexpr uint32_t DROP_DEMO_BOX      = 0x00100000; // Release hydraulic latches on bomb box
-        static constexpr uint32_t ARM_DEMO_FUSE      = 0x00200000; // Pull pin / start mechanical timer (15 min)
+        // ===================================================================
+        // BLOCK E: SAFETY CRITICAL SAFETY LOOPS & WATCHDOGS (Bits 20 - 31)
+        // ===================================================================
+        static constexpr uint32_t DROP_DEMO_BOX      = 0x00100000; // Bit 20: Release 700kg Sapper Bomb / Westinghouse Emergency Dump
+        static constexpr uint32_t ARM_DEMO_FUSE      = 0x00200000; // Bit 21: Pull Mechanical Fuse Pin / Activate Fallback Logic
+        static constexpr uint32_t CLIMATE_SYS_TURBO  = 0x00400000; // Bit 22: Swisscode Climate Deck / Fan Charged Turbo Module
+        static constexpr uint32_t EXPRESS_WIND       = 0x00800000; // Bit 23: Swisscode Max Fan Venting / Force Express Wind Mode
+        static constexpr uint32_t FIBER_CHANNEL_UP   = 0x01000000; // Bit 24: GE Fiber Channel Network Backbone Power Contactor
+        static constexpr uint32_t SIP_COMMS_ON       = 0x02000000; // Bit 25: Keep Session Initiation Protocol VoIP Route Open
+        static constexpr uint32_t TPMS_BUS_FAULT     = 0x04000000; // Bit 26: Beam Steering Tire Pressure Monitoring System Bus Fault
+        static constexpr uint32_t BUMPER_CLAMP_ENG   = 0x08000000; // Bit 27: Deploy Stationary Platform Docking Bumper Clamps
+        static constexpr uint32_t CONTROLLER_MODE_A  = 0x10000000; // Bit 28: Waypoint Navigation Automation Mode Active
+        static constexpr uint32_t CONTROLLER_MODE_B  = 0x20000000; // Bit 29: Leader-Follower / Convoy Bounding Tele-Nav Mode
+        static constexpr uint32_t WATCHDOG_HEARTBEAT = 0x40000000; // Bit 30: 100ms Cyclic Hardware Heartbeat Validation Token
+        static constexpr uint32_t SELF_DESTRUCT_ARM  = 0x80000000; // Bit 31: Scuttling Charge Active / Anti-Capture Interlock Trip
+    };
 
         // --- SAFETY & TELEMETRY ---
         static constexpr uint32_t WATCHDOG_HEARTBEAT = 0x40000000; // Must toggle every 100ms (30s historical)
