@@ -3,14 +3,70 @@
 # Subsystem: Core Network Multiplexer and Hardware Routing Layer
 
 import threading
-import time
 from typing import Dict, Any
-
+import time
+import logging
+# Import the custom matrix decoder layer from the same folder
+from univac_matrix_processor import UnivacMatrixProcessor
 # Import your existing network layer components
 from nmea_serial_parser import NmeaSerialDataParser
 from actuator_serial_serializer import ActuatorSerialOutputSerializer
 from actuator_telemetry_receiver import ActuatorTelemetryReceiverNode
 from bridge_network_interface import BridgeActuatorNetworkInterface
+
+#!/usr/bin/env python3
+"""
+Univac-Aegis-bridge: Extension Module for bridge_network_router.py
+Intercepts matrix data loops and dispatches them across physical hardware boundaries.
+"""
+
+logger = logging.getLogger("BridgeNetworkRouter")
+
+class BridgeNetworkRouterExtension:
+    def __init__(self, hardware_watchdog_instance=None):
+        self.processor = UnivacMatrixProcessor()
+        self.watchdog = hardware_watchdog_instance
+
+    def ingest_live_system_frame(self, raw_frame_stream: str) -> bool:
+        """
+        Primary network entry point for live streaming JSON packets.
+        Decodes tracking nodes and forwards structural commands to hardware systems.
+        """
+        # Notify the watchdog that a valid packet stream transaction has arrived
+        if self.watchdog:
+            self.watchdog.register_heartbeat()
+
+        # Parse the structured matrix via the unpacked 5x-stacked decoder
+        directive = self.processor.process_incoming_packet(raw_frame_stream)
+        
+        if directive.get("status") != "PROCESSED":
+            logger.warning(f"Router dropped frame. Processing failed: {directive.get('reason', 'UNKNOWN')}")
+            return False
+
+        # Route the physical zone configuration parameters out to downstream subsystems
+        zone = directive["zone"]
+        actions = directive["actions"]
+        
+        self._dispatch_to_actuators(zone, actions)
+        return True
+
+    def _dispatch_to_actuators(self, zone: str, actions: Dict[str, str]) -> None:
+        """
+        Internal routing table driving physical boundaries based on current zone evaluation.
+        """
+        logger.info(f"[ROUTING DISPATCH] Target Area: {zone}")
+        
+        # 1. Isolation Gates Routing Logic
+        if actions.get("isolation_gates") == "LOCKED":
+            logger.info(f" -> Access Control Directive: DEPLOY HARD LOCKDOWN on {zone} barriers.")
+        
+        # 2. HVAC Containment Routing Logic
+        if actions.get("hvac_mode") == "EXHAUST_ISOLATE":
+            logger.info(f" -> Environmental Control Directive: REVERSE FLUX FLUID PRESSURE in {zone} air ducts.")
+            
+        # 3. Elevator System Braking Logic
+        if actions.get("brakes") == "EMERGENCY_STOP":
+            logger.info(f" -> Mechanical Override Directive: ACTIVATE LIFT MECHANICAL SHUNT BRAKES on {zone} vertical shafts.")
 
 class BridgeNetworkRouter:
     def __init__(self, target_hardware_ip: str, target_port: int, manufacturer_code: str = "UNVC"):
