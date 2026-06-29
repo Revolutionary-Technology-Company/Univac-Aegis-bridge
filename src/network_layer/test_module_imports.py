@@ -11,6 +11,19 @@ import unittest
 # Ensure Python runtime can resolve relative paths to sister modules 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+        def test_thermal_pid_loop_convergence(self):
+        """Validates that modulating valve outputs react correctly to target temperature differentials."""
+        from living_quarters_controller import AdvancedLivingQuartersController
+        controller = AdvancedLivingQuartersController("TEST_VALVE_NODE")
+        
+        # Scenario: Output is cold (20C), target is hot (40C). Valve must open toward hot line.
+        valve_pct = controller.compute_valve_pid_modulation(target_temp_c=40.0, current_temp_c=20.0, dt=1.0)
+        self.assertGreater(valve_pct, 0.0)
+        
+        # Scenario: Output exceeds target limit (50C vs 30C). Valve must shut off hot water supply.
+        valve_pct_inverse = controller.compute_valve_pid_modulation(target_temp_c=30.0, current_temp_c=50.0, dt=1.0)
+        self.assertEqual(valve_pct_inverse, 0.0)
+
     def test_living_quarters_fluid_dynamics(self):
         """Validates hydraulic thresholding and safety isolation for shower lines."""
         from living_quarters_controller import LivingQuartersController
