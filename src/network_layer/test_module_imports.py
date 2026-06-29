@@ -11,6 +11,22 @@ import unittest
 # Ensure Python runtime can resolve relative paths to sister modules 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+    def test_living_quarters_fluid_dynamics(self):
+        """Validates hydraulic thresholding and safety isolation for shower lines."""
+        from living_quarters_controller import LivingQuartersController
+        
+        test_controller = LivingQuartersController("TEST_MODULE")
+        # Force a simulated greywater overflow state
+        test_controller.current_greywater_level = 450.0
+        
+        # Run a single evaluation slice with high heater relay usage
+        relay_flags = {"water_heater_active": True, "blast_door_secured": False}
+        status = test_controller.evaluate_utility_states(relay_flags, dt=1.0)
+        
+        # Verify that the system automatically shut off shower lines to prevent overflows
+        self.assertFalse(status["shower_valves_energized"])
+        self.assertTrue(status["pneumatic_ejector_running"])
+
 class TestUnivacNetworkLayerImports(unittest.TestCase):
 
     def test_matrix_processor_import(self):
