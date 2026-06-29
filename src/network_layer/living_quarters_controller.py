@@ -8,18 +8,101 @@ import logging
 from typing import Dict, Any
 
 logger = logging.getLogger("LivingQuartersController")
+logger = logging.getLogger("AcceleratedDrainage")
 
-#!/usr/bin/env python3
-"""
-Univac-Aegis-bridge: Advanced Living Quarters & Utility Control System
-Provides real-time capacity adjustments for physical storage wells and 
-implements a continuous PID loop for modulating shower hot-water mixing valves.
-"""
+class AcceleratedLivingQuartersController:
+    def __init__(self, zone_id: str, default_capacity_liters: float = 2000.0):
+        self.zone_id = zone_id
+        
+        # Hydraulic Parameters
+        self.max_greywater_volume_liters = default_capacity_liters
+        self.current_greywater_level = 0.0
+        
+        # Baseline gravity/pump drain velocity (Liters per second)
+        self.PRIMARY_DRAIN_VELOCITY = 1.5 
+        # Secondary pneumatic injector acceleration speed (Liters per second)
+        self.PNEUMATIC_BOOSTER_VELOCITY = 6.5
+        
+        # State Indicators
+        self.shower_valves_open = False
+        self.primary_pump_active = False
+        self.pneumatic_booster_active = False
+        
+        # PID Temperature Variables (Preserved)
+        self.current_mix_temperature_c = 20.0
+        self.integral_error = 0.0
+        self.previous_error = 0.0
+        self.Kp, self.Ki, self.Kd = 2.25, 0.35, 0.15
 
-import logging
-from typing import Dict, Any
+    def evaluate_utility_states(self, relay_flags: Dict[str, bool], target_temp_c: float, dt: float) -> Dict[str, Any]:
+        """
+        Executes dynamic fluid flow balancing with two-stage high-speed drainage.
+        """
+        if dt <= 0.0:
+            dt = 0.001
 
-logger = logging.getLogger("LivingQuartersController")
+        # 1. Calculate Incoming Volume Load (Showers running at full tilt)
+        incoming_flow_rate = 0.0
+        if relay_flags.get("water_heater_active", False):
+            self.shower_valves_open = True
+            incoming_flow_rate = 4.5  # High load displacement influx (L/s)
+        else:
+            self.shower_valves_open = False
+
+        # 2. Sequential Drainage Control Loop
+        # Stage 1 Trigger: Normal high-water limit (50% capacity) -> Start baseline pumping
+        if self.current_greywater_level >= (self.max_greywater_volume_liters * 0.50):
+            self.primary_pump_active = True
+        
+        # Stage 2 Trigger: CRITICAL ACCELERATION LINE (80% capacity and rising)
+        # If inflow continues outstripping primary pump bounds, deploy air pressure injectors
+        if self.current_greywater_level >= (self.max_greywater_volume_liters * 0.80):
+            if not self.pneumatic_booster_active:
+                logger.critical(f"⚠️ [{self.zone_id}] DRAIN LEVEL CRITICAL ({self.current_greywater_level:.1f}L). DEPLOYING DUAL-STAGE PNEUMATIC AUXILIARY BOOST ACCELERATORS.")
+            self.pneumatic_booster_active = True
+            self.shower_valves_open = False  # Automated protection: Isolate water supply completely
+
+        # Calculate Net Fluid Vector Shift
+        outbound_flow_rate = 0.0
+        if self.primary_pump_active:
+            outbound_flow_rate += self.PRIMARY_DRAIN_VELOCITY
+        if self.pneumatic_booster_active:
+            outbound_flow_rate += self.PNEUMATIC_BOOSTER_VELOCITY
+
+        # Apply continuous-time Euler integration pass
+        net_flow_delta = incoming_flow_rate - outbound_flow_rate
+        self.current_greywater_level = max(0.0, min(self.max_greywater_volume_liters, self.current_greywater_level + (net_flow_delta * dt)))
+
+        # Hysteresis Reset points to stop the pumps once the well clears
+        if self.current_greywater_level <= (self.max_greywater_volume_liters * 0.10):
+            self.primary_pump_active = False
+            if self.pneumatic_booster_active:
+                logger.info(f"✅ [{self.zone_id}] Well pressure cleared. Safely venting pneumatic booster valves.")
+            self.pneumatic_booster_active = False
+
+        # 3. Thermal Modulation Pass (Preserved structural PID logic)
+        hot_valve_pct = 0.0
+        if self.shower_valves_open:
+            error = target_temp_c - self.current_mix_temperature_c
+            p_term = self.Kp * error
+            self.integral_error = max(-50.0, min(50.0, self.integral_error + (error * dt)))
+            i_term = self.Ki * self.integral_error
+            d_term = self.Kd * ((error - self.previous_error) / dt)
+            self.previous_error = error
+            hot_valve_pct = max(0.0, min(100.0, p_term + i_term + d_term))
+            self.current_mix_temperature_c += ( ((hot_valve_pct / 100.0) * 60.0 + (1.0 - (hot_valve_pct / 100.0)) * 12.0) - self.current_mix_temperature_c ) * 0.4 * dt
+        else:
+            self.current_mix_temperature_c += (18.0 - self.current_mix_temperature_c) * 0.1 * dt
+            self.integral_error = 0.0
+
+        return {
+            "zone": self.zone_id,
+            "well_fill_volume_liters": float(round(self.current_greywater_level, 2)),
+            "well_load_percentage": (self.current_greywater_level / self.max_greywater_volume_liters) * 100.0,
+            "primary_pump_relay": self.primary_pump_active,
+            "pneumatic_booster_relay": self.pneumatic_booster_active,
+            "showers_disabled_by_overflow": not self.shower_valves_open and relay_flags.get("water_heater_active", False)
+        }
 
 class AdvancedLivingQuartersController:
     def __init__(self, zone_id: str, default_capacity_liters: float = 500.0):
