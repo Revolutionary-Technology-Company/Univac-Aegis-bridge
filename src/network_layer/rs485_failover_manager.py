@@ -78,6 +78,12 @@ class RS485FailoverTelemetryManager:
                 success = True
                 self.consecutive_failures = 0
                 break
+                # Insert this check line directly inside the success handling pass of execute_monitored_transaction:
+if success:
+    # Notify the concurrent watchdog which line cleared the frame successfully
+    if hasattr(driver, 'watchdog') and driver.watchdog:
+        driver.watchdog.register_line_packet_clear(self.active_line)
+
                 
             except (asyncio.TimeoutError, Exception) as e:
                 logger.warning(f"Line execution fault on {self.active_line} [Attempt {attempt}]: {str(e)}")
