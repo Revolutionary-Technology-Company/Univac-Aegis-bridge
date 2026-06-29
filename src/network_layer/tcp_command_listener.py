@@ -14,9 +14,77 @@ import time
 from typing import Dict, Any
 import logging
 import socket
+import sys
 from univac_node_matrix_processor import UnivacNodeMatrixProcessor
+# Re-use your matrix bridge logic
+from tcp_command_listener import TCPCommandMatrixBridge
 
+logging.basicConfig(level=logging.INFO, format='[UNIVAC-TCP-SERVER] %(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("TCPServer")
 logger = logging.getLogger("TCPListener")
+
+class MultiThreadedTCPListener:
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080, router_instance=None):
+        self.host = host
+        self.port = port
+        self.bridge = TCPCommandMatrixBridge(router_instance=router_instance)
+        self.server_socket = None
+        self.is_running = False
+
+    def start_server(self):
+        """Initializes the master socket bind and enters connection listening loop."""
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Enable immediate reuse of the port to prevent address-already-in-use errors
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        try:
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(128)  # Support high backplane connection queues
+            self.is_running = True
+            logger.info(f"UNIVAC Backplane TCP server listening on interface {self.host}:{self.port}")
+        except Exception as e:
+            logger.critical(f"Fatal socket bind failure on port {self.port}: {str(e)}")
+            sys.exit(1)
+
+        # Spawn a master orchestrator thread to accept incoming clients without blocking the main execution path
+        accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
+        accept_thread.start()
+
+    def _accept_loop(self):
+        while self.is_running:
+            try:
+                client_sock, client_addr = self.server_socket.accept()
+                logger.info(f"Incoming connection established from hardware node: {client_addr}")
+                
+                # Hand off client socket to an isolated thread to maintain sub-millisecond network pooling
+                client_thread = threading.Thread(
+                    target=self._handle_client_lifecycle, 
+                    args=(client_sock,), 
+                    daemon=True
+                )
+                client_thread.start()
+            except Exception as e:
+                if self.is_running:
+                    logger.error(f"Error accepting connection: {str(e)}")
+
+    def _handle_client_lifecycle(self, client_socket: socket.socket):
+        with client_socket:
+            client_socket.settimeout(5.0)  # Drop dead connections to prevent resource starvation
+            while self.is_running:
+                try:
+                    # Direct data pump intercept to processing matrix
+                    self.bridge.process_tcp_stream_chunk(client_socket)
+                except socket.timeout:
+                    continue  # Keep connection open if it's just a quiet telemetry window
+                except Exception as e:
+                    logger.debug(f"Client disconnected or closed channel: {str(e)}")
+                    break
+
+    def stop_server(self):
+        self.is_running = False
+        if self.server_socket:
+            self.server_socket.close()
+        logger.info("TCP server interface halted.")
 
 class TCPCommandMatrixBridge:
     def __init__(self, router_instance=None):
