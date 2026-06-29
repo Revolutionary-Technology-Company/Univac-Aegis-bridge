@@ -12,6 +12,8 @@ import time
 import sys
 import logging
 from univac_node_matrix_processor import UnivacNodeMatrixProcessor
+from typing import Optional
+from living_quarters_controller import AcceleratedLivingQuartersController
 
 logger = logging.getLogger("SerialListener")
 
@@ -22,13 +24,102 @@ except ImportError:
     # Safe fallback wrapper mock class if testing without physical hardware packages
     serial = None
 
+    def synchronize_and_execute_hardware_pass(self, raw_incoming_byte: bytes) -> Optional[int]:
+        """
+        Decodes physical sensor lines, recalculates fluid delta equations, 
+        and dispatches structural valve overrides back to the hardware platform.
+        """
+        if not raw_incoming_byte or len(raw_incoming_byte) == 0:
+            return None
 
+        # 1. Parse Input Byte: Read current physical sensor loop conditions
+        # Mapping: Bit 3 high indicates water heater loop drawing energy
+        sensor_register = int.from_bytes(raw_incoming_byte, byteorder="big")
+        relay_flags = {
+            "water_heater_active": bool(sensor_register & (1 << 3)),
+            "blast_door_secured":  bool(sensor_register & (1 << 4))
+        }
+
+        # Calculate time differential accurately to maintain constant continuous integration velocities
+        current_time = time.time()
+        dt = current_time - self.last_execution_timestamp
+        self.last_execution_timestamp = current_time
+
+        # 2. Compute Accelerated Fluid Equation Matrix Pass
+        # Target shower comfort index setpoint = 38.5 Degrees Celsius
+        telemetry = self.utility_engine.evaluate_utility_states(
+            relay_flags=relay_flags, 
+            target_temp_c=38.5, 
+            dt=dt
+        )
+
+        # 3. Construct Outbound Actuator Bitmask Register
+        actuator_command_byte = 0x00
+        
+        if telemetry["shower_active"]:
+            actuator_command_byte |= (1 << 0)  # Open shower valve
+        if telemetry["primary_pump_relay"]:
+            actuator_command_byte |= (1 << 1)  # Engage primary gravity pump
+        if telemetry["pneumatic_booster_relay"]:
+            actuator_command_byte |= (1 << 2)  # Deploy pneumatic high-speed booster line
+            
+        # 4. Physical Full-Duplex Dispatch Operation
+        if self.serial_bus and hasattr(self.serial_bus, 'write'):
+            try:
+                # Convert packed integer to standard raw single byte element
+                payload = bytes([actuator_command_byte])
+                self.serial_bus.write(payload)
+                self.serial_bus.flush() # Instantly empty hardware pipeline onto physical wire
+                logger.debug(f"Dispatched hardware command byte over serial link: 0x{actuator_command_byte:02X}")
+            except Exception as e:
+                logger.error(f"Hardware physical dispatch failure over serial link: {str(e)}")
+
+        # 5. Broadcast to Matrix Topology
+        # If the master network interface router is hooked, feed it the continuous JSON log stream
+        if self.router:
+            # We recreate the system stream configuration chunk directly from the evaluated metrics
+            from univac_matrix_processor import UnivacMatrixProcessor
+            dummy_processor = UnivacMatrixProcessor()
+            
+            # Map metrics to standard 5x-stacked 36-bit syntax structures
+            hex_matrix = [
+                dummy_processor.pack_to_36bit_hex_string(telemetry["well_load_percentage"] / 100.0, 0),
+                f"0x{actuator_command_byte:010X}",
+                "0x0000000000", "0x0000000000", "0x0000000000"
+            ]
+            
+            import json
+            packet = {
+                "protocol": "UNIVAC-MATRIX-STREAM",
+                "version": "9.1.0-TACTICAL",
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(current_time)),
+                "facilityZone": self.utility_engine.zone_id,
+                "matrixState": {
+                    "stackedWords36": hex_matrix,
+                    "filterConfidence": 0.995,
+                    "integrityCheck": "STABLE"
+                },
+                "routingControls": {
+                    "isolationGates": "LOCKED" if telemetry["pneumatic_booster_relay"] else "OPEN",
+                    "hvacFlowMode": "EXHAUST_ISOLATE" if telemetry["pneumatic_booster_relay"] else "NORMAL",
+                    "elevatorBrakes": "MONITORING"
+                }
+            }
+            self.router.ingest_live_system_frame(json.dumps(packet))
+
+        return actuator_command_byte
+        
 class SerialPortMatrixBridge:
-    def __init__(self, router_instance=None):
+    def __init__(self, serial_interface_handle=None, router_instance=None):
         # Initialize the telemetry processing engine
         self.node_processor = UnivacNodeMatrixProcessor(zone_identifier="BUNKER_SERIAL_HUB")
         self.router = router_instance
-
+        # Initialize engine configured for the main underground hub
+        self.utility_engine = AcceleratedLivingQuartersController(zone_id="BUNKER_UTILITY_CORE")
+        self.serial_bus = serial_interface_handle
+        self.router = router_instance
+        self.last_execution_timestamp = time.time()
+        
     def handle_raw_serial_byte(self, raw_byte: bytes) -> None:
         """
         Processes a raw input byte received from the physical serial port interface.
