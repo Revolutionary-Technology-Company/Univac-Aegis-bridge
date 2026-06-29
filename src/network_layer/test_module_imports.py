@@ -11,6 +11,24 @@ import unittest
 # Ensure Python runtime can resolve relative paths to sister modules 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+            def test_dual_stage_drainage_acceleration(self):
+        """Verifies pneumatic booster handles severe gravity drain bottlenecks."""
+        from living_quarters_controller import AcceleratedLivingQuartersController
+        controller = AcceleratedLivingQuartersController("CRITICAL_DRAIN_TEST", default_capacity_liters=1000.0)
+        
+        # Setup: Force well to near overflow (850 Liters)
+        controller.current_greywater_level = 850.0
+        relay_inputs = {"water_heater_active": True} # Showers wide open
+        
+        # Execute processing step
+        status = controller.evaluate_utility_states(relay_inputs, target_temp_c=38.5, dt=1.0)
+        
+        # The primary gravity pump (1.5 L/s) could not beat the inflow (4.5 L/s)
+        # Verify that the auxiliary pneumatic booster (6.5 L/s) stepped in to force clearing
+        self.assertTrue(status["pneumatic_booster_relay"])
+        self.assertTrue(status["showers_disabled_by_overflow"])
+        self.assertLess(status["well_fill_volume_liters"], 850.0)
+
         def test_thermal_pid_loop_convergence(self):
         """Validates that modulating valve outputs react correctly to target temperature differentials."""
         from living_quarters_controller import AdvancedLivingQuartersController
