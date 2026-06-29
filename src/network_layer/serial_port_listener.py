@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+Univac-Aegis-bridge: Serial Port Listener Extension
+Intercepts raw serial bus bytes and processes them through the Node Matrix Engine.
+"""
 # File Name: serial_port_listener.py
 # Location: /src/network_layer/
 # Subsystem: Asynchronous Hardware Serial Ingestion Engine
@@ -5,6 +10,10 @@
 import threading
 import time
 import sys
+import logging
+from univac_node_matrix_processor import UnivacNodeMatrixProcessor
+
+logger = logging.getLogger("SerialListener")
 
 # Ensure user has pyserial installed ('pip install pyserial')
 try:
@@ -12,6 +21,32 @@ try:
 except ImportError:
     # Safe fallback wrapper mock class if testing without physical hardware packages
     serial = None
+
+
+class SerialPortMatrixBridge:
+    def __init__(self, router_instance=None):
+        # Initialize the telemetry processing engine
+        self.node_processor = UnivacNodeMatrixProcessor(zone_identifier="BUNKER_SERIAL_HUB")
+        self.router = router_instance
+
+    def handle_raw_serial_byte(self, raw_byte: bytes) -> None:
+        """
+        Processes a raw input byte received from the physical serial port interface.
+        """
+        if not raw_byte or len(raw_byte) == 0:
+            return
+
+        # Convert raw byte to integer representation (0-255)
+        pin_register = int(raw_byte[0])
+        
+        # Compile into packed 5x-stacked 36-bit JSON matrices
+        json_frame = self.node_processor.compile_live_matrix_packet(pin_register)
+        
+        # Forward directly into the primary network router layer if configured
+        if self.router:
+            self.router.ingest_live_system_frame(json_frame)
+        else:
+            logger.debug(f"[SERIAL DROP] Packet generated but no router hooked: {json_frame}")
 
 class ThreadedSerialPortListener:
     def __init__(self, router_instance, port_name: str = "/dev/ttyUSB0", baud_rate: int = 4800, timeout_sec: float = 1.0):
