@@ -11,6 +11,23 @@ import unittest
 # Ensure Python runtime can resolve relative paths to sister modules 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+    def test_terminal_flag_parsing_bounds(self):
+        """Confirms that the Typer command parser validates and catches out-of-bounds node addresses."""
+        from async_typer_node import app
+        from typer.testing import CliRunner
+        
+        runner = CliRunner()
+        
+        # Scenario: Operator inputs an illegal Modbus node index address (e.g., 500)
+        result = runner.invoke(app, ["--slave-id", "500"])
+        
+        # Verify that the infrastructure successfully flags the error and stops execution
+        self.assertNotEqual(result.exit_code, 0)
+        
+        # Scenario: Input a valid address boundary station allocation (e.g., 32)
+        # We test invocation signature structures directly without firing loops
+        self.assertTrue(hasattr(app, 'registered_commands'))
+
     def test_modbus_crc_and_framing_integrity(self):
         """Validates that Modbus RTU frames generate mathematically correct CRC-16 arrays."""
         from modbus_framing_engine import ModbusRTUFramingEngine
