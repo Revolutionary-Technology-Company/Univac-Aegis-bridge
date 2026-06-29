@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+Univac-Aegis-bridge: TCP Command Listener Extension
+Receives network commands or raw payload bytes over dedicated network sockets.
+"""
 # File Name: tcp_command_listener.py
 # Location: /src/network_layer/
 # Subsystem: Asynchronous TCP Network Target Command Server
@@ -7,6 +12,38 @@ import threading
 import json
 import time
 from typing import Dict, Any
+import logging
+import socket
+from univac_node_matrix_processor import UnivacNodeMatrixProcessor
+
+logger = logging.getLogger("TCPListener")
+
+class TCPCommandMatrixBridge:
+    def __init__(self, router_instance=None):
+        self.node_processor = UnivacNodeMatrixProcessor(zone_identifier="BUNKER_TCP_NODE")
+        self.router = router_instance
+
+    def process_tcp_stream_chunk(self, client_socket: socket.socket) -> None:
+        """
+        Reads a data chunk from an active TCP connection socket.
+        Expects a single byte header representing the relay pin register state.
+        """
+        try:
+            # Read a single hardware status byte from the TCP buffer
+            data = client_socket.recv(1)
+            if not data:
+                return
+
+            pin_register = int(data[0])
+            
+            # Generate the unified JSON system string
+            json_frame = self.node_processor.compile_live_matrix_packet(pin_register)
+            
+            if self.router:
+                self.router.ingest_live_system_frame(json_frame)
+                
+        except Exception as e:
+            logger.error(f"TCP Stream tracking processing anomaly: {str(e)}")
 
 class JsonTcpCommandListener:
     def __init__(self, host_ip: str = "0.0.0.0", port: int = 7000):
