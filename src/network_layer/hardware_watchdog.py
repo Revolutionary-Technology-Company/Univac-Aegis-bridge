@@ -15,6 +15,7 @@ from hardware_watchdog import MatrixStreamWatchdog
 
 logger = logging.getLogger("HardwareWatchdogRouter")
 logger = logging.getLogger("HardwareWatchdog")
+logger = logging.getLogger("ConcurrentWatchdog")
 
 class ComprehensiveHardwareWatchdog(MatrixStreamWatchdog):
     def __init__(self, target_frequency_hz: float = 4.0):
@@ -27,6 +28,67 @@ class ComprehensiveHardwareWatchdog(MatrixStreamWatchdog):
             "TCP_INTERFACE": time.time()
         }
 
+    class ConcurrentDualLineWatchdog(MatrixStreamWatchdog):
+    def __init__(self, target_frequency_hz: float = 4.0):
+        # Initialize parent configuration loops
+        super().__init__(target_frequency_hz=target_frequency_hz, safety_margin_multiplier=2.5)
+        
+        # Track clock states for each independent line
+        self.line_timestamps = {
+            "LINE_A_PRIMARY": time.time(),
+            "LINE_B_BACKUP": time.time()
+        }
+
+    def register_line_packet_clear(self, active_line_name: str):
+        """
+        Called by your network routing layers immediately after a packet finishes 
+        processing on a specific transceiver channel.
+        """
+        current_time = time.time()
+        if active_line_name in self.line_timestamps:
+            self.line_timestamps[active_line_name] = current_time
+            # Keep parent background timer reset during operational states
+            self.register_heartbeat()
+        else:
+            logger.warning(f"Unmapped hardware channel registration attempt: {active_line_name}")
+
+    def run(self):
+        """
+        Asynchronous evaluation thread scanning for concurrent line drops.
+        """
+        self._is_running = True
+        logger.info("Concurrent Dual-Line Watchdog thread active. Monitoring lines A and B.")
+        
+        while self._is_running:
+            time.sleep(self.expected_interval / 2.0)
+            current_time = time.time()
+            
+            # Evaluate current timing gaps for both lines
+            gap_a = current_time - self.line_timestamps["LINE_A_PRIMARY"]
+            gap_b = current_time - self.line_timestamps["LINE_B_BACKUP"]
+            
+            # Check if BOTH links have simultaneously breached the timeout limits
+            if gap_a > self.max_allowed_gap and gap_b > self.max_allowed_gap:
+                self._trigger_catastrophic_fault_sequence(gap_a, gap_b)
+                
+    def _trigger_catastrophic_fault_sequence(self, gap_a: float, gap_b: float):
+        """
+        Hard safety intervention loop deployed only when all network visibility is lost.
+        """
+        logger.critical("🚨 !!! [CATASTROPHIC BACKPLANE ISOLATION] TOTAL NETWORK LOSS DETECTED !!!")
+        logger.critical(f" -> Line A Primary Stalled: {gap_a:.3f}s (Max limit: {self.max_allowed_gap:.3f}s)")
+        logger.critical(f" -> Line B Backup Stalled:  {gap_b:.3f}s (Max limit: {self.max_allowed_gap:.3f}s)")
+        
+        logger.critical(" -> Action: Depressurizing all tactical storage pipelines.")
+        logger.critical(" -> Action: Disengaging all magnetic door strikes and locks globally.")
+        logger.critical(" -> Action: Deploying mechanical failsafes to guarantee egress paths.")
+        
+        # Reset counters to limit output logs while the connection drops are handled
+        now = time.time()
+        self.line_timestamps["LINE_A_PRIMARY"] = now
+        self.line_timestamps["LINE_B_BACKUP"] = now
+        self.register_heartbeat()
+        
     def register_interface_tick(self, interface_name: str):
         """
         Called instantly inside listener loops whenever data clears the input buffer.
