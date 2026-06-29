@@ -11,6 +11,26 @@ import unittest
 # Ensure Python runtime can resolve relative paths to sister modules 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+        @get_event_loop
+    def test_asynchronous_retry_exhaustion_limits(self):
+        """Validates that the async manager cuts loops and exits cleanly when retries are exhausted."""
+        from rs485_retry_manager import AsyncRS485RetryManager
+        import asyncio
+
+        # Create a mock driver that intentionally triggers errors to stress test the wrapper
+        class FaultyDriver:
+            def transmit_modbus_packet_rtu(self, mask):
+                raise IOError("Simulated broken copper differential line.")
+
+        manager = AsyncRS485RetryManager(FaultyDriver(), max_retries=2, timeout_seconds=0.01)
+        
+        # Execute async method loop inside a synchronous test wrapper pass
+        loop = asyncio.get_event_loop()
+        success = loop.run_until_complete(manager.execute_transaction_with_retry(0x06))
+        
+        # The manager should return False to signal complete loop dropouts after exactly 2 tries
+        self.assertFalse(success)
+
     def test_terminal_flag_parsing_bounds(self):
         """Confirms that the Typer command parser validates and catches out-of-bounds node addresses."""
         from async_typer_node import app
