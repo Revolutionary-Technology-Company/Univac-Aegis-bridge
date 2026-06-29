@@ -9,6 +9,120 @@ from typing import Dict, Any
 
 logger = logging.getLogger("LivingQuartersController")
 
+#!/usr/bin/env python3
+"""
+Univac-Aegis-bridge: Advanced Living Quarters & Utility Control System
+Provides real-time capacity adjustments for physical storage wells and 
+implements a continuous PID loop for modulating shower hot-water mixing valves.
+"""
+
+import logging
+from typing import Dict, Any
+
+logger = logging.getLogger("LivingQuartersController")
+
+class AdvancedLivingQuartersController:
+    def __init__(self, zone_id: str, default_capacity_liters: float = 500.0):
+        self.zone_id = zone_id
+        
+        # 1. Dynamic Tank Capacity Thresholds (Physical Well Layout)
+        self.max_greywater_volume_liters = default_capacity_liters
+        self.current_greywater_level = 0.0
+        
+        # 2. PID Temperature Regulation Variables
+        self.current_mix_temperature_c = 20.0  # Ambient start
+        self.integral_error = 0.0
+        self.previous_error = 0.0
+        
+        # Standard industrial PID gains for mixing valves to limit hunting/overshoot
+        self.Kp = 2.25
+        self.Ki = 0.35
+        self.Kd = 0.15
+        
+        # State tracking flags
+        self.shower_valves_open = False
+        self.pneumatic_ejector_active = False
+
+    def dynamically_adjust_well_capacity(self, height_meters: float, radius_meters: float) -> float:
+        """
+        Calculates and updates max tank thresholds using physical layout geometries.
+        Formula: V = pi * r^2 * h * 1000 (to convert cubic meters to liters)
+        """
+        volume_cubic_meters = math.pi * (radius_meters ** 2) * height_meters
+        self.max_greywater_volume_liters = volume_cubic_meters * 1000.0
+        logger.info(f"[{self.zone_id}] Well topology recalibrated. Max capacity updated to: {self.max_greywater_volume_liters:.2f} Liters.")
+        return self.max_greywater_volume_liters
+
+    def compute_valve_pid_modulation(self, target_temp_c: float, current_temp_c: float, dt: float) -> float:
+        """
+        Executes a discrete time-slice PID calculation for the modulating mix valve.
+        Returns hot-water valve percentage opening command string [0.0 to 100.0%].
+        """
+        if dt <= 0.0:
+            return 0.0
+            
+        error = target_temp_c - current_temp_c
+        
+        # Proportional term
+        p_term = self.Kp * error
+        
+        # Integral term with windup protection (limit accumulation if valve is fully open/closed)
+        self.integral_error += error * dt
+        self.integral_error = max(-50.0, min(50.0, self.integral_error))
+        i_term = self.Ki * self.integral_error
+        
+        # Derivative term tracking rapid thermal changes
+        d_term = self.Kd * ((error - self.previous_error) / dt)
+        self.previous_error = error
+        
+        # Total output command
+        valve_output = p_term + i_term + d_term
+        
+        # Clamp output bounded to exact physical actuator stops [0% (Full Cold) to 100% (Full Hot)]
+        return max(0.0, min(100.0, valve_output))
+
+    def evaluate_utility_states(self, relay_flags: Dict[str, bool], target_temp_c: float, dt: float) -> Dict[str, Any]:
+        """
+        Executes structural fluid mechanics and thermal regulation passes for the zone.
+        """
+        # 1. Hydraulic Level Management
+        if relay_flags.get("water_heater_active", False) and not self.pneumatic_ejector_active:
+            self.shower_valves_open = True
+            self.current_greywater_level += (0.35 * dt)  # Continuous inflow scale
+        else:
+            self.shower_valves_open = False
+
+        # 2. Emergency Overflow Purge Tripping
+        if self.current_greywater_level >= (self.max_greywater_volume_liters * 0.80):
+            self.pneumatic_ejector_active = True
+            self.shower_valves_open = False  # Hard fail-safe isolation
+            
+        if self.pneumatic_ejector_active:
+            self.current_greywater_level = max(0.0, self.current_greywater_level - (3.0 * dt))
+            if self.current_greywater_level <= (self.max_greywater_volume_liters * 0.10):
+                self.pneumatic_ejector_active = False
+
+        # 3. Modulating Thermal Regulation Step
+        hot_valve_pct = 0.0
+        if self.shower_valves_open:
+            hot_valve_pct = self.compute_valve_pid_modulation(target_temp_c, self.current_mix_temperature_c, dt)
+            # Simulated thermodynamic response feedback loop step
+            thermal_influence = (hot_valve_pct / 100.0) * 60.0 + (1.0 - (hot_valve_pct / 100.0)) * 12.0
+            self.current_mix_temperature_c += (thermal_influence - self.current_mix_temperature_c) * 0.4 * dt
+        else:
+            # Cool down toward ambient when stagnant
+            self.current_mix_temperature_c += (18.0 - self.current_mix_temperature_c) * 0.1 * dt
+            self.integral_error = 0.0  # Reset integral cache to eliminate windup artifacts
+
+        return {
+            "zone": self.zone_id,
+            "shower_active": self.shower_valves_open,
+            "well_fill_percentage": (self.current_greywater_level / self.max_greywater_volume_liters) * 100.0,
+            "pneumatic_purge_running": self.pneumatic_ejector_active,
+            "mix_valve_hot_pct": float(round(hot_valve_pct, 2)),
+            "monitored_output_temperature_c": float(round(self.current_mix_temperature_c, 2))
+        }
+
 class LivingQuartersController:
     def __init__(self, zone_id: str):
         self.zone_id = zone_id
