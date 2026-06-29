@@ -11,7 +11,36 @@ import unittest
 # Ensure Python runtime can resolve relative paths to sister modules 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-            def test_dual_stage_drainage_acceleration(self):
+    def test_serial_full_duplex_outbound_masking(self):
+        """Validates that correct actuator control bytes are written over the serial interface link."""
+        from serial_port_listener import SerialPortMatrixBridge
+        
+        # Create a mock serial interface channel stub to evaluate write interception parameters
+        class MockSerialBus:
+            def __init__(self):
+                self.write_history = []
+            def write(self, data: bytes):
+                self.write_history.append(data)
+            def flush(self):
+                pass
+                
+        mock_bus = MockSerialBus()
+        bridge = SerialPortMatrixBridge(serial_interface_handle=mock_bus)
+        
+        # Scenario: Trigger a situation forcing the booster engine online immediately
+        bridge.utility_engine.current_greywater_level = 1800.0 # Bounded near overflow point
+        sensor_input_byte = bytes([0x08]) # Input indicates shower draw loop active (Bit 3)
+        
+        # Execute synchronization tick pass
+        outbound_command = bridge.synchronize_and_execute_hardware_pass(sensor_input_byte)
+        
+        # Verify result: Outbound command must have deployed booster safety locks (Bit 2 = 0x04)
+        # It must have isolated showers (Bit 0 = 0x00) and running primary pumps (Bit 1 = 0x02)
+        # Expected value: 0x02 (pump) | 0x04 (booster) = 0x06
+        self.assertEqual(outbound_command, 0x06)
+        self.assertEqual(mock_bus.write_history[0], bytes([0x06]))
+
+def test_dual_stage_drainage_acceleration(self):
         """Verifies pneumatic booster handles severe gravity drain bottlenecks."""
         from living_quarters_controller import AcceleratedLivingQuartersController
         controller = AcceleratedLivingQuartersController("CRITICAL_DRAIN_TEST", default_capacity_liters=1000.0)
