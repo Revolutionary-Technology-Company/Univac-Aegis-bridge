@@ -1,0 +1,61 @@
+version: '3.8'
+
+networks:
+  univac_tactical_backplane:
+    driver: bridge
+    name: univac_tactical_backplane
+
+services:
+  # ==========================================
+  # Node 01: Bank Vault Infrastructure Hub
+  # ==========================================
+  bank_security_node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: univac_bank_node
+    networks:
+      - univac_tactical_backplane
+    ports:
+      - "8081:8080"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FACILITY_ZONE=FINANCIAL_VAULT_Z
+      - TARGET_FREQUENCY_HZ=10.0 # High-speed scanning for perimeter line checks
+    restart: unless-stopped
+
+  # ==========================================
+  # Node 02: Hospital Isolation Wing Hub
+  # ==========================================
+  hospital_medical_node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: univac_hospital_node
+    networks:
+      - univac_tactical_backplane
+    ports:
+      - "8082:8080"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FACILITY_ZONE=HOSPITAL_ISOLATION_WARD_3
+      - TARGET_FREQUENCY_HZ=4.0 # Balanced sampling loop for HVAC/drainage models
+    restart: unless-stopped
+
+  # ==========================================
+  # Node 03: Underground Base Command Module
+  # ==========================================
+  bunker_command_node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: univac_bunker_node
+    networks:
+      - univac_tactical_backplane
+    ports:
+      - "8083:8080"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FACILITY_ZONE=BUNKER_COMMAND_MODULE
+      - TARGET_FREQUENCY_HZ=1.0 # Low-frequency high-reliability life-support monitoring
+    restart: unless-stopped

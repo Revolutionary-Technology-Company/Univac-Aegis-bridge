@@ -1,16 +1,128 @@
+#!/usr/bin/env python3
+"""
+Univac-Aegis-bridge: Extension Module for bridge_network_router.py
+Intercepts matrix data loops and dispatches them across physical hardware boundaries.
+"""
 # File Name: bridge_network_router.py
 # Location: /src/network_layer/
 # Subsystem: Core Network Multiplexer and Hardware Routing Layer
 
 import threading
-import time
 from typing import Dict, Any
-
+import time
+import logging
+# Insert this configuration script pass inside your BridgeNetworkRouterExtension run loop
+import importlib
+import math
+import living_quarters_controller
+importlib.reload(living_quarters_controller)
+from living_quarters_controller import AdvancedLivingQuartersController
+# Import the custom matrix decoder layer from the same folder
+from univac_matrix_processor import UnivacMatrixProcessor
 # Import your existing network layer components
 from nmea_serial_parser import NmeaSerialDataParser
 from actuator_serial_serializer import ActuatorSerialOutputSerializer
 from actuator_telemetry_receiver import ActuatorTelemetryReceiverNode
 from bridge_network_interface import BridgeActuatorNetworkInterface
+
+# Append this inside the __init__ definition of BridgeNetworkRouterExtension
+from living_quarters_controller import LivingQuartersController
+
+# Configuration example for initializing physical storage dimensions
+# Let's say we calibrate a cylindrical well on site: Height = 4.5m, Radius = 1.2m
+bunker_quarters = AdvancedLivingQuartersController("COMMAND_BUNKER_QUARTERS")
+bunker_quarters.dynamically_adjust_well_capacity(height_meters=4.5, radius_meters=1.2)
+
+# Simulated discrete frame loop tick execution trace
+relay_inputs = {"water_heater_active": True, "blast_door_secured": False}
+time_delta = 0.5  # 500ms time slice step
+
+# Run verification evaluation targeting standard comfort index (38.5 Degrees Celsius)
+telemetry_summary = bunker_quarters.evaluate_utility_states(
+    relay_flags=relay_inputs, 
+    target_temp_c=38.5, 
+    dt=time_delta
+)
+
+print("\n--- THERMAL REGULATION VALVEOUT TELEMETRY SNAPSHOT ---")
+print(f"Node Zone: {telemetry_summary['zone']}")
+print(f"Actuator Hot Valve Position: {telemetry_summary['mix_valve_hot_pct']}% Open")
+print(f"Sensory Output Temperature: {telemetry_summary['monitored_output_temperature_c']} C")
+print(f"Physical Storage Well Fill: {telemetry_summary['well_fill_percentage']:.2f}% Capacity")
+
+class BridgeNetworkRouterExtension:
+    def __init__(self, hardware_watchdog_instance=None):
+        self.processor = UnivacMatrixProcessor()
+        self.watchdog = hardware_watchdog_instance
+        
+        # Map physical utility sub-controllers directly to the target environment zones
+        self.quarters_registry = {
+            "BUNKER_COMMAND_MODULE": LivingQuartersController("COMMAND_QUARTERS_A"),
+            "HOSPITAL_ISOLATION_WARD_3": LivingQuartersController("MEDICAL_QUARTERS_B")
+        }
+
+    def process_utility_routing(self, zone_name: str, relay_flags: Dict[str, bool], dt: float):
+        """
+        Intercepts incoming discrete loop frames and updates plumbing/ventilation states.
+        """
+        controller = self.quarters_registry.get(zone_name)
+        if controller:
+            utility_report = controller.evaluate_utility_states(relay_flags, dt)
+            
+            # Print physical state matrices out to the centralized logging stream
+            logger.info(
+                f"[UTILITY LOOP] Node: {utility_report['zone']} | "
+                f"Showers: {'ON' if utility_report['shower_valves_energized'] else 'OFF'} | "
+                f"Tank Load: {utility_report['holding_tank_utilization_pct']:.1f}%"
+            )
+
+logger = logging.getLogger("BridgeNetworkRouter")
+
+class BridgeNetworkRouterExtension:
+    def __init__(self, hardware_watchdog_instance=None):
+        self.processor = UnivacMatrixProcessor()
+        self.watchdog = hardware_watchdog_instance
+
+    def ingest_live_system_frame(self, raw_frame_stream: str) -> bool:
+        """
+        Primary network entry point for live streaming JSON packets.
+        Decodes tracking nodes and forwards structural commands to hardware systems.
+        """
+        # Notify the watchdog that a valid packet stream transaction has arrived
+        if self.watchdog:
+            self.watchdog.register_heartbeat()
+
+        # Parse the structured matrix via the unpacked 5x-stacked decoder
+        directive = self.processor.process_incoming_packet(raw_frame_stream)
+        
+        if directive.get("status") != "PROCESSED":
+            logger.warning(f"Router dropped frame. Processing failed: {directive.get('reason', 'UNKNOWN')}")
+            return False
+
+        # Route the physical zone configuration parameters out to downstream subsystems
+        zone = directive["zone"]
+        actions = directive["actions"]
+        
+        self._dispatch_to_actuators(zone, actions)
+        return True
+
+    def _dispatch_to_actuators(self, zone: str, actions: Dict[str, str]) -> None:
+        """
+        Internal routing table driving physical boundaries based on current zone evaluation.
+        """
+        logger.info(f"[ROUTING DISPATCH] Target Area: {zone}")
+        
+        # 1. Isolation Gates Routing Logic
+        if actions.get("isolation_gates") == "LOCKED":
+            logger.info(f" -> Access Control Directive: DEPLOY HARD LOCKDOWN on {zone} barriers.")
+        
+        # 2. HVAC Containment Routing Logic
+        if actions.get("hvac_mode") == "EXHAUST_ISOLATE":
+            logger.info(f" -> Environmental Control Directive: REVERSE FLUX FLUID PRESSURE in {zone} air ducts.")
+            
+        # 3. Elevator System Braking Logic
+        if actions.get("brakes") == "EMERGENCY_STOP":
+            logger.info(f" -> Mechanical Override Directive: ACTIVATE LIFT MECHANICAL SHUNT BRAKES on {zone} vertical shafts.")
 
 class BridgeNetworkRouter:
     def __init__(self, target_hardware_ip: str, target_port: int, manufacturer_code: str = "UNVC"):

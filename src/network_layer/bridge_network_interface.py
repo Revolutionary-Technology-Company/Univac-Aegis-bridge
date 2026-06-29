@@ -6,6 +6,45 @@ import threading
 import time
 import json
 from typing import Dict, Any
+# Insert this runtime test orchestration inside your BridgeNetworkRouterExtension execution blocks
+import asyncio
+from rs485_failover_manager import RS485FailoverTelemetryManager
+
+class MockSerialHardwareNode:
+    """Mock node setup simulating a damaged line connection configuration."""
+    def __init__(self, should_fail: bool):
+        self.should_fail = should_fail
+    def transmit_modbus_packet_rtu(self, mask: int):
+        if self.should_fail:
+            time.sleep(0.040)
+            raise IOError("Copper core open circuit ground short.")
+        # Working line simulation path
+        time.sleep(0.008)
+        return True
+
+async def run_live_pipeline_integration():
+    # Configure Line A as broken and Line B as healthy to verify dynamic switching
+    line_a_stub = MockSerialHardwareNode(should_fail=True)
+    line_b_stub = MockSerialHardwareNode(should_fail=False)
+    
+    # Initialize the failover matrix controller with strict timing constraints (20ms timeout limit)
+    failover_engine = RS485FailoverTelemetryManager(
+        primary_driver=line_a_stub, 
+        backup_driver=line_b_stub,
+        max_retries=2, 
+        timeout_seconds=0.020
+    )
+    
+    print("--- INITIATING SYSTEM TRANSACTION FLOW WITH AUTO-FAILOVER AND MATRIX PACKING ---")
+    
+    # Execute sequential transaction passes to trigger failover and log outputs
+    for step in range(2):
+        success, matrix_json = await failover_engine.execute_monitored_transaction(raw_actuator_mask=0x06)
+        print(f"\n[PIPELINE TRANSACTION TICK #{step+1}] Live Telemetry Output String:")
+        print(matrix_json)
+
+if __name__ == "__main__":
+    asyncio.run(run_live_pipeline_integration())
 
 class BridgeActuatorNetworkInterface:
     def __init__(self, target_ip: str = "192.168.1.50", target_port: int = 5005, local_port: int = 5006):

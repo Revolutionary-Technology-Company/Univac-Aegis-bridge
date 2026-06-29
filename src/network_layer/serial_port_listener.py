@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+Univac-Aegis-bridge: Serial Port Listener Extension
+Intercepts raw serial bus bytes and processes them through the Node Matrix Engine.
+"""
 # File Name: serial_port_listener.py
 # Location: /src/network_layer/
 # Subsystem: Asynchronous Hardware Serial Ingestion Engine
@@ -5,6 +10,14 @@
 import threading
 import time
 import sys
+import logging
+from univac_node_matrix_processor import UnivacNodeMatrixProcessor
+from typing import Optional
+from living_quarters_controller import AcceleratedLivingQuartersController
+from modbus_framing_engine import ModbusRTUFramingEngine
+
+logger = logging.getLogger("SerialListener")
+logger = logging.getLogger("RS485Driver")
 
 # Ensure user has pyserial installed ('pip install pyserial')
 try:
@@ -12,6 +25,180 @@ try:
 except ImportError:
     # Safe fallback wrapper mock class if testing without physical hardware packages
     serial = None
+
+
+# Attempt library verification hook to handle physical GPIO access paths
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    GPIO_AVAILABLE = False
+
+class RS485SerialPortBridge:
+    def __init__(self, serial_handle, slave_address: int = 0x05, rts_control_pin: int = 18):
+        """
+        :param serial_handle: Active PySerial connection layer target.
+        :param rts_control_pin: Physical hardware index pin assigned to DE/RE transceiver shorts.
+        """
+        self.serial_bus = serial_handle
+        self.modbus_encoder = ModbusRTUFramingEngine(slave_address=slave_address)
+        self.direction_pin = rts_control_pin
+        
+        # Configure the hardware GPIO layout pins if available
+        if GPIO_AVAILABLE:
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(self.direction_pin, GPIO.OUT)
+            GPIO.output(self.direction_pin, GPIO.LOW)  # Default posture: RECEIVE/LISTEN
+
+    def transmit_modbus_packet_rtu(self, raw_actuator_mask: int):
+        """
+        Toggles the physical transceiver line high, writes the Modbus byte array,
+        waits for the transmission to finish, and switches back to receive mode.
+        """
+        # 1. Compile the valid Modbus RTU byte array with trailing CRC-16 suffix
+        modbus_adu_frame = self.modbus_encoder.compile_write_coils_frame(raw_actuator_mask)
+        
+        if not self.serial_bus or not hasattr(self.serial_bus, 'write'):
+            logger.error("Transmission aborted: Serial bus interface handle is offline.")
+            return
+
+        try:
+            # 2. Assert direction pin HIGH to lock out the receive bus and claim transmit priority
+            if GPIO_AVAILABLE:
+                GPIO.output(self.direction_pin, GPIO.HIGH)
+            
+            # Write the complete structural package to the copper wire
+            self.serial_bus.write(modbus_adu_frame)
+            
+            # 3. Force hardware block drainage to prevent dropping lingering trailing bytes
+            self.serial_bus.flush()
+            
+            # Calculate transmission duration delay to prevent cutting off the CRC suffix bytes
+            # Formula: (Bits per frame / Baud rate) -> (90 bits / 9600 baud) ≈ 9.3 milliseconds
+            time.sleep(0.010) 
+            
+        except Exception as e:
+            logger.error(f"Hardware error during Modbus ADU dispatch step: {str(e)}")
+        finally:
+            # 4. De-assert direction pin LOW to open up receive paths for sensory feedback loops
+            if GPIO_AVAILABLE:
+                GPIO.output(self.direction_pin, GPIO.LOW)
+            logger.debug(f"RS-485 bus flipped back to RECEIVE mode on pin {self.direction_pin}.")
+            
+    def synchronize_and_execute_hardware_pass(self, raw_incoming_byte: bytes) -> Optional[int]:
+        """
+        Decodes physical sensor lines, recalculates fluid delta equations, 
+        and dispatches structural valve overrides back to the hardware platform.
+        """
+        if not raw_incoming_byte or len(raw_incoming_byte) == 0:
+            return None
+
+        # 1. Parse Input Byte: Read current physical sensor loop conditions
+        # Mapping: Bit 3 high indicates water heater loop drawing energy
+        sensor_register = int.from_bytes(raw_incoming_byte, byteorder="big")
+        relay_flags = {
+            "water_heater_active": bool(sensor_register & (1 << 3)),
+            "blast_door_secured":  bool(sensor_register & (1 << 4))
+        }
+
+        # Calculate time differential accurately to maintain constant continuous integration velocities
+        current_time = time.time()
+        dt = current_time - self.last_execution_timestamp
+        self.last_execution_timestamp = current_time
+
+        # 2. Compute Accelerated Fluid Equation Matrix Pass
+        # Target shower comfort index setpoint = 38.5 Degrees Celsius
+        telemetry = self.utility_engine.evaluate_utility_states(
+            relay_flags=relay_flags, 
+            target_temp_c=38.5, 
+            dt=dt
+        )
+
+        # 3. Construct Outbound Actuator Bitmask Register
+        actuator_command_byte = 0x00
+        
+        if telemetry["shower_active"]:
+            actuator_command_byte |= (1 << 0)  # Open shower valve
+        if telemetry["primary_pump_relay"]:
+            actuator_command_byte |= (1 << 1)  # Engage primary gravity pump
+        if telemetry["pneumatic_booster_relay"]:
+            actuator_command_byte |= (1 << 2)  # Deploy pneumatic high-speed booster line
+            
+        # 4. Physical Full-Duplex Dispatch Operation
+        if self.serial_bus and hasattr(self.serial_bus, 'write'):
+            try:
+                # Convert packed integer to standard raw single byte element
+                payload = bytes([actuator_command_byte])
+                self.serial_bus.write(payload)
+                self.serial_bus.flush() # Instantly empty hardware pipeline onto physical wire
+                logger.debug(f"Dispatched hardware command byte over serial link: 0x{actuator_command_byte:02X}")
+            except Exception as e:
+                logger.error(f"Hardware physical dispatch failure over serial link: {str(e)}")
+
+        # 5. Broadcast to Matrix Topology
+        # If the master network interface router is hooked, feed it the continuous JSON log stream
+        if self.router:
+            # We recreate the system stream configuration chunk directly from the evaluated metrics
+            from univac_matrix_processor import UnivacMatrixProcessor
+            dummy_processor = UnivacMatrixProcessor()
+            
+            # Map metrics to standard 5x-stacked 36-bit syntax structures
+            hex_matrix = [
+                dummy_processor.pack_to_36bit_hex_string(telemetry["well_load_percentage"] / 100.0, 0),
+                f"0x{actuator_command_byte:010X}",
+                "0x0000000000", "0x0000000000", "0x0000000000"
+            ]
+            
+            import json
+            packet = {
+                "protocol": "UNIVAC-MATRIX-STREAM",
+                "version": "9.1.0-TACTICAL",
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(current_time)),
+                "facilityZone": self.utility_engine.zone_id,
+                "matrixState": {
+                    "stackedWords36": hex_matrix,
+                    "filterConfidence": 0.995,
+                    "integrityCheck": "STABLE"
+                },
+                "routingControls": {
+                    "isolationGates": "LOCKED" if telemetry["pneumatic_booster_relay"] else "OPEN",
+                    "hvacFlowMode": "EXHAUST_ISOLATE" if telemetry["pneumatic_booster_relay"] else "NORMAL",
+                    "elevatorBrakes": "MONITORING"
+                }
+            }
+            self.router.ingest_live_system_frame(json.dumps(packet))
+
+        return actuator_command_byte
+        
+class SerialPortMatrixBridge:
+    def __init__(self, serial_interface_handle=None, router_instance=None):
+        # Initialize the telemetry processing engine
+        self.node_processor = UnivacNodeMatrixProcessor(zone_identifier="BUNKER_SERIAL_HUB")
+        self.router = router_instance
+        # Initialize engine configured for the main underground hub
+        self.utility_engine = AcceleratedLivingQuartersController(zone_id="BUNKER_UTILITY_CORE")
+        self.serial_bus = serial_interface_handle
+        self.router = router_instance
+        self.last_execution_timestamp = time.time()
+        
+    def handle_raw_serial_byte(self, raw_byte: bytes) -> None:
+        """
+        Processes a raw input byte received from the physical serial port interface.
+        """
+        if not raw_byte or len(raw_byte) == 0:
+            return
+
+        # Convert raw byte to integer representation (0-255)
+        pin_register = int(raw_byte[0])
+        
+        # Compile into packed 5x-stacked 36-bit JSON matrices
+        json_frame = self.node_processor.compile_live_matrix_packet(pin_register)
+        
+        # Forward directly into the primary network router layer if configured
+        if self.router:
+            self.router.ingest_live_system_frame(json_frame)
+        else:
+            logger.debug(f"[SERIAL DROP] Packet generated but no router hooked: {json_frame}")
 
 class ThreadedSerialPortListener:
     def __init__(self, router_instance, port_name: str = "/dev/ttyUSB0", baud_rate: int = 4800, timeout_sec: float = 1.0):

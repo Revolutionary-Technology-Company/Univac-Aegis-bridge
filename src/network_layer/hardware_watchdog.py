@@ -1,11 +1,189 @@
+#!/usr/bin/env python3
 # File Name: hardware_watchdog.py
 # Location: /src/network_layer/
 # Subsystem: Asynchronous Co-Processor Thread Health & Serial Link Watchdog
+"""
+Univac-Aegis-bridge: Extension Module for hardware_watchdog.py
+Provides low-latency stream timing protection to flag system hangs.
+"""
 
 import threading
 import time
 from typing import Dict, Any
+import logging
+from hardware_watchdog import MatrixStreamWatchdog
 
+logger = logging.getLogger("HardwareWatchdogRouter")
+logger = logging.getLogger("HardwareWatchdog")
+logger = logging.getLogger("ConcurrentWatchdog")
+
+class ComprehensiveHardwareWatchdog(MatrixStreamWatchdog):
+    def __init__(self, target_frequency_hz: float = 4.0):
+        # Initialize the base thread monitor
+        super().__init__(target_frequency_hz=target_frequency_hz, safety_margin_multiplier=2.5)
+        
+        # Track independent system interface states
+        self.interface_ticks = {
+            "SERIAL_INTERFACE": time.time(),
+            "TCP_INTERFACE": time.time()
+        }
+
+    class ConcurrentDualLineWatchdog(MatrixStreamWatchdog):
+    def __init__(self, target_frequency_hz: float = 4.0):
+        # Initialize parent configuration loops
+        super().__init__(target_frequency_hz=target_frequency_hz, safety_margin_multiplier=2.5)
+        
+        # Track clock states for each independent line
+        self.line_timestamps = {
+            "LINE_A_PRIMARY": time.time(),
+            "LINE_B_BACKUP": time.time()
+        }
+
+    def register_line_packet_clear(self, active_line_name: str):
+        """
+        Called by your network routing layers immediately after a packet finishes 
+        processing on a specific transceiver channel.
+        """
+        current_time = time.time()
+        if active_line_name in self.line_timestamps:
+            self.line_timestamps[active_line_name] = current_time
+            # Keep parent background timer reset during operational states
+            self.register_heartbeat()
+        else:
+            logger.warning(f"Unmapped hardware channel registration attempt: {active_line_name}")
+
+    def run(self):
+        """
+        Asynchronous evaluation thread scanning for concurrent line drops.
+        """
+        self._is_running = True
+        logger.info("Concurrent Dual-Line Watchdog thread active. Monitoring lines A and B.")
+        
+        while self._is_running:
+            time.sleep(self.expected_interval / 2.0)
+            current_time = time.time()
+            
+            # Evaluate current timing gaps for both lines
+            gap_a = current_time - self.line_timestamps["LINE_A_PRIMARY"]
+            gap_b = current_time - self.line_timestamps["LINE_B_BACKUP"]
+            
+            # Check if BOTH links have simultaneously breached the timeout limits
+            if gap_a > self.max_allowed_gap and gap_b > self.max_allowed_gap:
+                self._trigger_catastrophic_fault_sequence(gap_a, gap_b)
+                
+    def _trigger_catastrophic_fault_sequence(self, gap_a: float, gap_b: float):
+        """
+        Hard safety intervention loop deployed only when all network visibility is lost.
+        """
+        logger.critical("🚨 !!! [CATASTROPHIC BACKPLANE ISOLATION] TOTAL NETWORK LOSS DETECTED !!!")
+        logger.critical(f" -> Line A Primary Stalled: {gap_a:.3f}s (Max limit: {self.max_allowed_gap:.3f}s)")
+        logger.critical(f" -> Line B Backup Stalled:  {gap_b:.3f}s (Max limit: {self.max_allowed_gap:.3f}s)")
+        
+        logger.critical(" -> Action: Depressurizing all tactical storage pipelines.")
+        logger.critical(" -> Action: Disengaging all magnetic door strikes and locks globally.")
+        logger.critical(" -> Action: Deploying mechanical failsafes to guarantee egress paths.")
+        
+        # Reset counters to limit output logs while the connection drops are handled
+        now = time.time()
+        self.line_timestamps["LINE_A_PRIMARY"] = now
+        self.line_timestamps["LINE_B_BACKUP"] = now
+        self.register_heartbeat()
+        
+    def register_interface_tick(self, interface_name: str):
+        """
+        Called instantly inside listener loops whenever data clears the input buffer.
+        """
+        current_time = time.time()
+        if interface_name in self.interface_ticks:
+            self.interface_ticks[interface_name] = current_time
+            # Also notify parent base clock to reset the master network timeout counters
+            self.register_heartbeat()
+        else:
+            logger.warning(f"Unrecognized diagnostic interface loop registration: {interface_name}")
+
+    def run(self):
+        """
+        Asynchronous analysis loop checking for granular channel decay.
+        """
+        self._is_running = True
+        logger.info("Advanced Interface Watchdog active. Commencing track verification scans.")
+        
+        while self._is_running:
+            time.sleep(self.expected_interval / 2.0)
+            current_time = time.time()
+            
+            for name, last_tick in list(self.interface_ticks.items()):
+                delta_t = current_time - last_tick
+                
+                # Check if an isolated line has locked up or stopped reporting
+                if delta_t > self.max_allowed_gap:
+                    logger.critical(f"!!! [LINE FAULT TRIPPED] !!! Interface: {name} stalled for {delta_t:.3f}s")
+                    self._trigger_fault_sequence(delta_t)
+                    
+class MatrixStreamWatchdog(threading.Thread):
+    def __init__(self, target_frequency_hz: float = 4.0, safety_margin_multiplier: float = 2.5):
+        """
+        Sets tracking boundaries based on streaming loops.
+        Default target_frequency_hz = 4.0 matching standard 250ms loops.
+        """
+        super().__init__()
+        self.daemon = True # Allows script to shut down cleanly without thread locking
+        
+        # Calculate maximum permissible gap interval between ticks
+        self.expected_interval = 1.0 / target_frequency_hz
+        self.max_allowed_gap = self.expected_interval * safety_margin_multiplier
+        
+        # Synchronization parameters
+        self._last_heartbeat_time = time.time()
+        self._lock = threading.Lock()
+        self._is_running = False
+
+    def register_heartbeat(self) -> None:
+        """
+        Called externally by network interfaces every time a valid packet payload is cleared.
+        Resets the timing window.
+        """
+        with self._lock:
+            self._last_heartbeat_time = time.time()
+
+    def run(self) -> None:
+        """
+        Continuous observation execution loop. Runs asynchronously from data paths.
+        """
+        self._is_running = True
+        logger.info(f"Matrix Watchdog tracking active. Maximum allowed timeout: {self.max_allowed_gap:.3f}s")
+        
+        while self._is_running:
+            time.sleep(self.expected_interval / 2.0) # Check twice per nominal cycle to avoid tracking delay
+            
+            with self._lock:
+                current_time = time.time()
+                time_since_last_packet = current_time - self._last_heartbeat_time
+                
+            if time_since_last_packet > self.max_allowed_gap:
+                self._trigger_fault_sequence(time_since_last_packet)
+
+    def stop_monitoring(self) -> None:
+        """
+        Clean extraction pathway to deactivate checking matrices.
+        """
+        self._is_running = False
+
+    def _trigger_fault_sequence(self, true_latency: float) -> None:
+        """
+        Hard safety intervention execution path. Executed instantly if data flow degrades.
+        """
+        logger.critical("!!! [WATCHDOG TIMEOUT EXCEEDED] STREAM FAILURE ENCOUNTERED !!!")
+        logger.critical(f" -> No valid telemetry packet processed for {true_latency:.3f} seconds (Max limit: {self.max_allowed_gap:.3f}s).")
+        
+        # Enforce fail-safe security postures immediately to protect physical infrastructure
+        logger.critical(" -> Action: Forcing system configuration into [REDUCED_LIABILITY_SAFE_MODE].")
+        logger.critical(" -> Action: Deploying default mechanical exit pathways and unlocking emergency egress tracks.")
+        
+        # Reset tracker value to prevent console flooding during long connection recovery cycles
+        with self._lock:
+            self._last_heartbeat_time = time.time()
+            
 class AsynchronousHardwareWatchdog:
     def __init__(self, critical_timeout_sec: float = 1.0):
         """
