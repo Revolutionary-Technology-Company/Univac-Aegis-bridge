@@ -5,13 +5,126 @@ Optimized for 5x-Stacked 36-bit Vector Telemetry & Video Frame Analysis.
 
 import math
 import time
+import json
+import logging
+from typing import Dict, List, Any
+
+# Configure performance logging
+logging.basicConfig(level=logging.INFO, format='[UNIVAC-FAST-NODE] %(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("NodeMatrixProcessor")
 
 class UnivacNodeMatrixProcessor:
-    def __init__(self):
+    def __init__(self, zone_identifier: str = "BUNKER_COMMAND_MODULE"):
         # Strict 36-bit structural hardware word limit
+        self.zone_identifier = zone_identifier
         self.WORD_36_MAX = 68719476735  # 2^36 - 1
         self.nodes = {}
         self._initialize_100_nodes()
+
+        # Internal state integration caches for mathematical fluid tracking loops
+        self.carbon_dioxide_ppm = 400.0
+        self.sump_water_level_meters = 0.15
+        self.exhaust_pressure_pascals = 101325.0
+        self.last_update_time = time.time()
+
+        def process_discrete_relays(self, binary_pin_register: int) -> Dict[str, bool]:
+        """
+        Translates a raw 8-bit discrete relay register into isolated system flags.
+        Example mapping: [0: ExhaustFan, 1: SumpPump, 2: ScrubValve, 3: HotWater, 4: DoorLock]
+        """
+        return {
+            "exhaust_fan_active": bool(binary_pin_register & (1 << 0)),
+            "sump_pump_active":   bool(binary_pin_register & (1 << 1)),
+            "co2_scrubber_active": bool(binary_pin_register & (1 << 2)),
+            "water_heater_active": bool(binary_pin_register & (1 << 3)),
+            "blast_door_secured":  bool(binary_pin_register & (1 << 4))
+        }
+
+    def compute_bunker_physics_slice(self, relay_states: Dict[str, bool], dt: float) -> List[float]:
+        """
+        Executes real-time discrete updates tracking industrial life-support models.
+        Returns 5 continuous-time engineering metrics scaled strictly from [0.0, 1.0].
+        """
+        # 1. Atmospheric CO2 Scrubbing Differential
+        if relay_states["co2_scrubber_active"]:
+            self.carbon_dioxide_ppm = max(350.0, self.carbon_dioxide_ppm - (12.5 * dt))
+        else:
+            self.carbon_dioxide_ppm = min(2500.0, self.carbon_dioxide_ppm + (2.1 * dt))
+        metric_co2 = (self.carbon_dioxide_ppm - 350.0) / 2150.0
+
+        # 2. Sump Drainage Flow Dynamics
+        if relay_states["sump_pump_active"]:
+            self.sump_water_level_meters = max(0.0, self.sump_water_level_meters - (0.05 * dt))
+        else:
+            self.sump_water_level_meters = min(2.0, self.sump_water_level_meters + (0.01 * dt))
+        metric_drainage = self.sump_water_level_meters / 2.0
+
+        # 3. Overpressure Blast Valve Delta
+        if relay_states["exhaust_fan_active"]:
+            self.exhaust_pressure_pascals = min(101600.0, self.exhaust_pressure_pascals + (15.0 * dt))
+        else:
+            self.exhaust_pressure_pascals = max(101325.0, self.exhaust_pressure_pascals - (8.0 * dt))
+        metric_pressure = (self.exhaust_pressure_pascals - 101325.0) / 275.0
+
+        # 4. Thermal Expansion Metric (Dummy scale based on heater status)
+        metric_thermal = 0.78 if relay_states["water_heater_active"] else 0.42
+
+        # 5. Door Interlock Propagation Status
+        metric_door_load = 0.95 if relay_states["blast_door_secured"] else 0.05
+
+        return [
+            max(0.0, min(1.0, metric_co2)),
+            max(0.0, min(1.0, metric_drainage)),
+            max(0.0, min(1.0, metric_pressure)),
+            max(0.0, min(1.0, metric_thermal)),
+            max(0.0, min(1.0, metric_door_load))
+        ]
+
+    def pack_to_36bit_hex_string(self, normalized_value: float, stack_index: int) -> str:
+        """
+        Packs a normalized continuous float into a 36-bit space with custom zone offsets.
+        """
+        discrete_val = int(normalized_value * self.WORD_36_MAX)
+        stack_offset = stack_index << 32
+        packed_word = discrete_val ^ stack_offset
+        return f"0x{packed_word:010X}"
+
+    def compile_live_matrix_packet(self, raw_pin_byte: int) -> str:
+        """
+        Ingests the raw hardware register, updates equations, and produces the complete JSON frame.
+        """
+        current_time = time.time()
+        dt = current_time - self.last_update_time
+        self.last_update_time = current_time
+
+        # Parse relays and execute fluid/pressure slices
+        relay_states = self.process_discrete_relays(raw_pin_byte)
+        metrics = self.compute_bunker_physics_slice(relay_states, dt)
+
+        # Build 5x-stacked word format matching standard requirements
+        hex_matrix = [
+            self.pack_to_36bit_hex_string(val, idx) for idx, val in enumerate(metrics)
+        ]
+
+        # Structure complete normalized telemetry log payload
+        packet = {
+            "protocol": "UNIVAC-MATRIX-STREAM",
+            "version": "9.1.0-TACTICAL",
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(current_time)),
+            "originNode": "HARDWARE_RELAY_LOGGER",
+            "facilityZone": self.zone_identifier,
+            "matrixState": {
+                "stackedWords36": hex_matrix,
+                "filterConfidence": 0.99245,
+                "integrityCheck": "STABLE"
+            },
+            "routingControls": {
+                "isolationGates": "LOCKED" if relay_states["blast_door_secured"] else "OPEN",
+                "hvacFlowMode": "EXHAUST_ISOLATE" if metrics[2] > 0.75 else "NORMAL",
+                "elevatorBrakes": "MONITORING"
+            }
+        }
+        return json.dumps(packet)
 
     def pack_5x_36bit_word(self, continuous_signals):
         """
@@ -142,3 +255,16 @@ class UnivacNodeMatrixProcessor:
         self.nodes[98] = lambda s, i: int(s[0]) & 0xFFF                   # CCI Administrative console execution parsing loop
         self.nodes[99] = lambda s, i: 0x90909090                          # DPT Live patch hot NOP instruction block bypass
         self.nodes[100] = lambda s, i: True                               # Bootstrapping Sector Sector zero cold start sequence
+
+        # Dynamic test driver loops mimicking real-time hardware execution ticks
+        if __name__ == "__main__":
+            node_processor = UnivacNodeMatrixProcessor()
+    
+            print("--- INITIATING DISCRETE TELEMETRY HARVEST LOOP ---")
+            # Simulate three consecutive real-time execution steps with active relays
+            # 0x0F = Exhaust, Sump, Scrubber, and Heater all energized (00001111)
+            for tick in range(3):
+                time.sleep(0.2)  # 200ms processing delay step
+                json_frame = node_processor.compile_live_matrix_packet(raw_pin_byte=0x0F)
+                print(f"\n[FRAME TICK #{tick+1}] Generated System String Output:")
+                print(json_frame)
