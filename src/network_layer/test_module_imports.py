@@ -11,6 +11,25 @@ import unittest
 # Ensure Python runtime can resolve relative paths to sister modules 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+    def test_modbus_crc_and_framing_integrity(self):
+        """Validates that Modbus RTU frames generate mathematically correct CRC-16 arrays."""
+        from modbus_framing_engine import ModbusRTUFramingEngine
+        encoder = ModbusRTUFramingEngine(slave_address=0x05)
+        
+        # Scenario: Encode an arbitrary actuator mask state (e.g., 0x06 = pump + booster active)
+        modbus_raw_adu = encoder.compile_write_coils_frame(0x06)
+        
+        # Verify complete structure length matches target specification
+        self.assertEqual(len(modbus_raw_adu), 9)
+        
+        # Isolate the data components and the generated Little-Endian CRC suffix bytes
+        payload_bytes = modbus_raw_adu[:7]
+        crc_suffix = modbus_raw_adu[7:]
+        
+        # Recalculating the CRC of the payload text layer must evaluate back to the parsed signature bytes
+        recalculated_crc = encoder.calculate_modbus_crc(payload_bytes)
+        self.assertEqual(crc_suffix, recalculated_crc)
+
     def test_serial_full_duplex_outbound_masking(self):
         """Validates that correct actuator control bytes are written over the serial interface link."""
         from serial_port_listener import SerialPortMatrixBridge
