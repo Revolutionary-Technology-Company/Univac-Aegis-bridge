@@ -14,8 +14,10 @@ import logging
 from univac_node_matrix_processor import UnivacNodeMatrixProcessor
 from typing import Optional
 from living_quarters_controller import AcceleratedLivingQuartersController
+from modbus_framing_engine import ModbusRTUFramingEngine
 
 logger = logging.getLogger("SerialListener")
+logger = logging.getLogger("RS485Driver")
 
 # Ensure user has pyserial installed ('pip install pyserial')
 try:
@@ -24,6 +26,65 @@ except ImportError:
     # Safe fallback wrapper mock class if testing without physical hardware packages
     serial = None
 
+
+# Attempt library verification hook to handle physical GPIO access paths
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    GPIO_AVAILABLE = False
+
+class RS485SerialPortBridge:
+    def __init__(self, serial_handle, slave_address: int = 0x05, rts_control_pin: int = 18):
+        """
+        :param serial_handle: Active PySerial connection layer target.
+        :param rts_control_pin: Physical hardware index pin assigned to DE/RE transceiver shorts.
+        """
+        self.serial_bus = serial_handle
+        self.modbus_encoder = ModbusRTUFramingEngine(slave_address=slave_address)
+        self.direction_pin = rts_control_pin
+        
+        # Configure the hardware GPIO layout pins if available
+        if GPIO_AVAILABLE:
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(self.direction_pin, GPIO.OUT)
+            GPIO.output(self.direction_pin, GPIO.LOW)  # Default posture: RECEIVE/LISTEN
+
+    def transmit_modbus_packet_rtu(self, raw_actuator_mask: int):
+        """
+        Toggles the physical transceiver line high, writes the Modbus byte array,
+        waits for the transmission to finish, and switches back to receive mode.
+        """
+        # 1. Compile the valid Modbus RTU byte array with trailing CRC-16 suffix
+        modbus_adu_frame = self.modbus_encoder.compile_write_coils_frame(raw_actuator_mask)
+        
+        if not self.serial_bus or not hasattr(self.serial_bus, 'write'):
+            logger.error("Transmission aborted: Serial bus interface handle is offline.")
+            return
+
+        try:
+            # 2. Assert direction pin HIGH to lock out the receive bus and claim transmit priority
+            if GPIO_AVAILABLE:
+                GPIO.output(self.direction_pin, GPIO.HIGH)
+            
+            # Write the complete structural package to the copper wire
+            self.serial_bus.write(modbus_adu_frame)
+            
+            # 3. Force hardware block drainage to prevent dropping lingering trailing bytes
+            self.serial_bus.flush()
+            
+            # Calculate transmission duration delay to prevent cutting off the CRC suffix bytes
+            # Formula: (Bits per frame / Baud rate) -> (90 bits / 9600 baud) ≈ 9.3 milliseconds
+            time.sleep(0.010) 
+            
+        except Exception as e:
+            logger.error(f"Hardware error during Modbus ADU dispatch step: {str(e)}")
+        finally:
+            # 4. De-assert direction pin LOW to open up receive paths for sensory feedback loops
+            if GPIO_AVAILABLE:
+                GPIO.output(self.direction_pin, GPIO.LOW)
+            logger.debug(f"RS-485 bus flipped back to RECEIVE mode on pin {self.direction_pin}.")
+            
     def synchronize_and_execute_hardware_pass(self, raw_incoming_byte: bytes) -> Optional[int]:
         """
         Decodes physical sensor lines, recalculates fluid delta equations, 
