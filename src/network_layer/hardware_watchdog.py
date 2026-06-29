@@ -11,9 +11,53 @@ import threading
 import time
 from typing import Dict, Any
 import logging
+from hardware_watchdog import MatrixStreamWatchdog
 
+logger = logging.getLogger("HardwareWatchdogRouter")
 logger = logging.getLogger("HardwareWatchdog")
 
+class ComprehensiveHardwareWatchdog(MatrixStreamWatchdog):
+    def __init__(self, target_frequency_hz: float = 4.0):
+        # Initialize the base thread monitor
+        super().__init__(target_frequency_hz=target_frequency_hz, safety_margin_multiplier=2.5)
+        
+        # Track independent system interface states
+        self.interface_ticks = {
+            "SERIAL_INTERFACE": time.time(),
+            "TCP_INTERFACE": time.time()
+        }
+
+    def register_interface_tick(self, interface_name: str):
+        """
+        Called instantly inside listener loops whenever data clears the input buffer.
+        """
+        current_time = time.time()
+        if interface_name in self.interface_ticks:
+            self.interface_ticks[interface_name] = current_time
+            # Also notify parent base clock to reset the master network timeout counters
+            self.register_heartbeat()
+        else:
+            logger.warning(f"Unrecognized diagnostic interface loop registration: {interface_name}")
+
+    def run(self):
+        """
+        Asynchronous analysis loop checking for granular channel decay.
+        """
+        self._is_running = True
+        logger.info("Advanced Interface Watchdog active. Commencing track verification scans.")
+        
+        while self._is_running:
+            time.sleep(self.expected_interval / 2.0)
+            current_time = time.time()
+            
+            for name, last_tick in list(self.interface_ticks.items()):
+                delta_t = current_time - last_tick
+                
+                # Check if an isolated line has locked up or stopped reporting
+                if delta_t > self.max_allowed_gap:
+                    logger.critical(f"!!! [LINE FAULT TRIPPED] !!! Interface: {name} stalled for {delta_t:.3f}s")
+                    self._trigger_fault_sequence(delta_t)
+                    
 class MatrixStreamWatchdog(threading.Thread):
     def __init__(self, target_frequency_hz: float = 4.0, safety_margin_multiplier: float = 2.5):
         """
