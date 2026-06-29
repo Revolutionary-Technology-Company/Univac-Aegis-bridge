@@ -1,10 +1,33 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.16)
 project(AegisLegacyBridge VERSION 1.0.0 LANGUAGES CXX)
 
 # Enforce Modern C++ Standard Guidelines
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# 1. Locate System Python Interpreter Dependencies
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+
+# 2. Define Core Executable Target Platforms
+add_executable(univac_bridge_node 
+    src/main.cpp
+)
+
+# 3. Inject Network Layer Dynamic Component Paths
+target_include_directories(univac_bridge_node PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${Python3_INCLUDE_DIRS}
+)
+
+# 4. Link System Libraries & Threading Targets
+target_link_libraries(univac_bridge_node PRIVATE 
+    ${Python3_LIBRARIES}
+    Threads::Threads
+)
+
+# 5. Build Automation Log Message
+message(STATUS "UNIVAC-AEGIS Build Configuration complete. Python bundled: ${Python3_EXECUTABLE}")
 
 # Optimization and hardening flags for real-time tactical software deployment
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -Wextra -Werror -fstack-protector-strong -D_FORTIFY_SOURCE=2")
