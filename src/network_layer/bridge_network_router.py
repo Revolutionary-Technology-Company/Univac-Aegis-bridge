@@ -11,6 +11,12 @@ import threading
 from typing import Dict, Any
 import time
 import logging
+# Insert this configuration script pass inside your BridgeNetworkRouterExtension run loop
+import importlib
+import math
+import living_quarters_controller
+importlib.reload(living_quarters_controller)
+from living_quarters_controller import AdvancedLivingQuartersController
 # Import the custom matrix decoder layer from the same folder
 from univac_matrix_processor import UnivacMatrixProcessor
 # Import your existing network layer components
@@ -21,6 +27,28 @@ from bridge_network_interface import BridgeActuatorNetworkInterface
 
 # Append this inside the __init__ definition of BridgeNetworkRouterExtension
 from living_quarters_controller import LivingQuartersController
+
+# Configuration example for initializing physical storage dimensions
+# Let's say we calibrate a cylindrical well on site: Height = 4.5m, Radius = 1.2m
+bunker_quarters = AdvancedLivingQuartersController("COMMAND_BUNKER_QUARTERS")
+bunker_quarters.dynamically_adjust_well_capacity(height_meters=4.5, radius_meters=1.2)
+
+# Simulated discrete frame loop tick execution trace
+relay_inputs = {"water_heater_active": True, "blast_door_secured": False}
+time_delta = 0.5  # 500ms time slice step
+
+# Run verification evaluation targeting standard comfort index (38.5 Degrees Celsius)
+telemetry_summary = bunker_quarters.evaluate_utility_states(
+    relay_flags=relay_inputs, 
+    target_temp_c=38.5, 
+    dt=time_delta
+)
+
+print("\n--- THERMAL REGULATION VALVEOUT TELEMETRY SNAPSHOT ---")
+print(f"Node Zone: {telemetry_summary['zone']}")
+print(f"Actuator Hot Valve Position: {telemetry_summary['mix_valve_hot_pct']}% Open")
+print(f"Sensory Output Temperature: {telemetry_summary['monitored_output_temperature_c']} C")
+print(f"Physical Storage Well Fill: {telemetry_summary['well_fill_percentage']:.2f}% Capacity")
 
 class BridgeNetworkRouterExtension:
     def __init__(self, hardware_watchdog_instance=None):
