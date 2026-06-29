@@ -11,7 +11,33 @@ import unittest
 # Ensure Python runtime can resolve relative paths to sister modules 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-        @get_event_loop
+    def test_automated_hardware_line_matrix_failover(self):
+        """Confirms that the failover engine drops dead tracks and switches lines immediately."""
+        from rs485_failover_manager import RS485FailoverTelemetryManager
+        import asyncio
+        
+        class DeadDriver:
+            def transmit_modbus_packet_rtu(self, mask):
+                raise TimeoutError("Bus timeout.")
+        class HealthyDriver:
+            def transmit_modbus_packet_rtu(self, mask):
+                return True
+                
+        # Bind drivers to structural instances
+        manager = RS485FailoverTelemetryManager(DeadDriver(), HealthyDriver(), max_retries=1, timeout_seconds=0.001)
+        
+        loop = asyncio.get_event_loop()
+        success, json_log = loop.run_until_complete(manager.execute_monitored_transaction(0x02))
+        
+        # Verify that transaction step 1 failed on primary line and triggered failover tracking
+        self.assertFalse(success)
+        self.assertEqual(manager.active_line, "LINE_B_BACKUP")
+        
+        # Verify that the generated system JSON log contains the target alert array element
+        parsed_data = json.loads(json_log)
+        self.assertIn("LINE_A_PRIMARY_TRANSMISSION_EXHAUSTED", parsed_data["busDiagnostics"]["triggeredAlertsLog"])
+
+@get_event_loop
     def test_asynchronous_retry_exhaustion_limits(self):
         """Validates that the async manager cuts loops and exits cleanly when retries are exhausted."""
         from rs485_retry_manager import AsyncRS485RetryManager
