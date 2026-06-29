@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+Univac-Aegis-bridge: Extension Module for bridge_network_router.py
+Intercepts matrix data loops and dispatches them across physical hardware boundaries.
+"""
 # File Name: bridge_network_router.py
 # Location: /src/network_layer/
 # Subsystem: Core Network Multiplexer and Hardware Routing Layer
@@ -14,11 +19,34 @@ from actuator_serial_serializer import ActuatorSerialOutputSerializer
 from actuator_telemetry_receiver import ActuatorTelemetryReceiverNode
 from bridge_network_interface import BridgeActuatorNetworkInterface
 
-#!/usr/bin/env python3
-"""
-Univac-Aegis-bridge: Extension Module for bridge_network_router.py
-Intercepts matrix data loops and dispatches them across physical hardware boundaries.
-"""
+# Append this inside the __init__ definition of BridgeNetworkRouterExtension
+from living_quarters_controller import LivingQuartersController
+
+class BridgeNetworkRouterExtension:
+    def __init__(self, hardware_watchdog_instance=None):
+        self.processor = UnivacMatrixProcessor()
+        self.watchdog = hardware_watchdog_instance
+        
+        # Map physical utility sub-controllers directly to the target environment zones
+        self.quarters_registry = {
+            "BUNKER_COMMAND_MODULE": LivingQuartersController("COMMAND_QUARTERS_A"),
+            "HOSPITAL_ISOLATION_WARD_3": LivingQuartersController("MEDICAL_QUARTERS_B")
+        }
+
+    def process_utility_routing(self, zone_name: str, relay_flags: Dict[str, bool], dt: float):
+        """
+        Intercepts incoming discrete loop frames and updates plumbing/ventilation states.
+        """
+        controller = self.quarters_registry.get(zone_name)
+        if controller:
+            utility_report = controller.evaluate_utility_states(relay_flags, dt)
+            
+            # Print physical state matrices out to the centralized logging stream
+            logger.info(
+                f"[UTILITY LOOP] Node: {utility_report['zone']} | "
+                f"Showers: {'ON' if utility_report['shower_valves_energized'] else 'OFF'} | "
+                f"Tank Load: {utility_report['holding_tank_utilization_pct']:.1f}%"
+            )
 
 logger = logging.getLogger("BridgeNetworkRouter")
 
